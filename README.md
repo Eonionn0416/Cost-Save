@@ -22,7 +22,16 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
   - 선택 Item의 일별 결제 합계를 월별 Min·Avg·Max Trend로 표시
   - 전체 기간 일별 분포의 95% 상한을 초과한 월별 Max 점 강조
   - 단측 Cpk 및 Rolling Cpk Trend
-- 월급 수령일 기준 Cash, Stock, Insurance, All 자산 Trend
+- 월말 자산 입력에 월급(+상여금) 저장
+  - 월급(+상여금)은 자산 All에는 포함하지 않고 다음 달 대시보드 수입으로 사용
+- 기준일별 월급(+상여금), Cash, Stock, Insurance, All Trend
+  - 같은 기준일을 다시 저장하면 새 점을 만들지 않고 기존 기록과 Trend를 갱신
+  - Cash, Stock, Insurance 변경 시 All을 다시 계산하여 즉시 반영
+- 대시보드 실시간 예산 관리
+  - Criteria별 기준표 Amount 합계, 실사용, 잔액, 사용률
+  - Q1~Q4 실제 일수 비례 예산, 실사용 및 잔액
+  - 최근 12개월 Criteria 예산·실사용·잔액 Trend
+  - 전월 월말 월급(+상여금) 기준 현금 흐름 Trend
 - 가계부 CSV 내보내기
 - 반응형 PC/모바일 화면
 - 탭 화면 전환 페이드·슬라이드 모션 및 사용자 모션 축소 설정 지원
@@ -34,6 +43,8 @@ users/{uid}/masters/{masterId}
 users/{uid}/transactions/{transactionId}
 users/{uid}/assets/{assetId}
 ```
+
+`assets`에는 `date`, `salaryBonus`, `cash`, `stock`, `insurance`, `total`이 저장됩니다. 기존 자산 기록에는 `salaryBonus`가 없을 수 있으므로 해당 월말 기록을 한 번 수정해 입력하면 다음 달 대시보드에 반영됩니다.
 
 `transactions`에는 `criteriaSnapshot`, `itemSnapshot`, `monthlyAmountSnapshot`, `flowTypeSnapshot`, `bankSnapshot`이 저장됩니다. 따라서 기준표 항목을 보관하거나 금액을 변경해도 과거 가계부의 당시 값은 바뀌지 않습니다.
 
@@ -107,6 +118,11 @@ http://localhost:5500
 
 ## 계산 기준
 
+- 선택 월의 수입은 직전 월의 가장 최근 월말 자산 기록에 저장된 `월급(+상여금)`입니다. 예: 7월 대시보드는 6월 월말 기록을 사용합니다.
+- Criteria 월 예산은 활성 기준표 중 Amount가 음수인 Item을 Criteria별로 합산한 절댓값입니다.
+- Criteria 남은 금액은 `Criteria 예산 - 해당 월 가계부 실사용`입니다. 기준표에서 보관된 Item의 과거 지출도 해당 월 실사용에는 포함됩니다.
+- Quarter 예산은 Q1 1~7일, Q2 8~14일, Q3 15~21일, Q4 22일~말일의 실제 일수 비율로 월 Criteria 예산을 배분합니다.
+- 월별 예산 Trend는 현재 활성 기준표의 예산을 과거 월에도 동일하게 적용합니다. 기준표 금액을 수정하면 과거 월의 계획선도 함께 바뀝니다.
 - 기준표 Amount가 양수이면 수입, 음수이면 지출/저축으로 저장합니다.
 - 가계부 입력창에는 항상 양수 금액을 입력합니다.
 - 월 USL은 기준표의 월 Amount 절댓값입니다.

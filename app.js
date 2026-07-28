@@ -76,6 +76,9 @@ const els = {
   syncStatus: $("sync-status"), toast: $("toast"), pageTitle: $("page-title"), pageKicker: $("page-kicker"),
   quickAddBtn: $("quick-add-btn"), mainNav: $("main-nav"),
   dashboardMonth: $("dashboard-month"), dashboardKpis: $("dashboard-kpis"), dashboardAlerts: $("dashboard-alerts"),
+  dashboardBudgetSummary: $("dashboard-budget-summary"), dashboardCriteriaTbody: $("dashboard-criteria-tbody"),
+  dashboardCriteriaTfoot: $("dashboard-criteria-tfoot"), dashboardQuarterCards: $("dashboard-quarter-cards"),
+  dashboardQuarterSummary: $("dashboard-quarter-summary"),
   transactionForm: $("transaction-form"), transactionId: $("transaction-id"), transactionDate: $("transaction-date"),
   transactionCriteria: $("transaction-criteria"), transactionItem: $("transaction-item"), transactionAmount: $("transaction-amount"),
   transactionBank: $("transaction-bank"), transactionPlace: $("transaction-place"), transactionMemo: $("transaction-memo"),
@@ -94,7 +97,7 @@ const els = {
   budgetKpiMonth: $("budget-kpi-month"), budgetKpiTbody: $("budget-kpi-tbody"),
   spcItemSelect: $("spc-item-select"), spcSummary: $("spc-summary"), dailyRangeSummary: $("daily-range-summary"),
   assetForm: $("asset-form"), assetId: $("asset-id"), assetDate: $("asset-date"),
-  assetCash: $("asset-cash"), assetStock: $("asset-stock"), assetInsurance: $("asset-insurance"),
+  assetSalaryBonus: $("asset-salary-bonus"), assetCash: $("asset-cash"), assetStock: $("asset-stock"), assetInsurance: $("asset-insurance"),
   assetTotalPreview: $("asset-total-preview"), assetCancelBtn: $("asset-cancel-btn"),
   assetFormTitle: $("asset-form-title"), assetTbody: $("asset-tbody"),
 };
@@ -184,6 +187,70 @@ function txQuarter(tx) {
   return "Q4";
 }
 function absAmount(tx) { return Math.abs(Number(tx.amount || 0)); }
+
+
+function daysInMonth(month) {
+  const [year, monthNumber] = String(month || "").split("-").map(Number);
+  if (!year || !monthNumber) return 30;
+  return new Date(year, monthNumber, 0).getDate();
+}
+
+function fundingAssetForMonth(month) {
+  const sourceMonth = shiftMonth(month, -1);
+  return [...state.assets]
+    .filter((asset) => String(asset.date || "").slice(0, 7) === sourceMonth)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] || null;
+}
+
+function incomeForMonth(month) {
+  const asset = fundingAssetForMonth(month);
+  const hasSalary = Boolean(asset) && asset.salaryBonus !== undefined && asset.salaryBonus !== null && asset.salaryBonus !== "" && Number.isFinite(Number(asset.salaryBonus));
+  return {
+    amount: hasSalary ? Number(asset.salaryBonus) : 0,
+    sourceDate: asset?.date || "",
+    hasSalary,
+    asset,
+  };
+}
+
+function criteriaBudgetRows(month) {
+  const budgetMap = new Map();
+  expenseMasters().forEach((master) => {
+    budgetMap.set(master.criteria, (budgetMap.get(master.criteria) || 0) + Math.abs(Number(master.monthlyAmount || 0)));
+  });
+
+  const actualMap = new Map();
+  monthlyTransactions(month).filter((tx) => Number(tx.amount) < 0).forEach((tx) => {
+    const criteria = tx.criteriaSnapshot || "미분류";
+    actualMap.set(criteria, (actualMap.get(criteria) || 0) + absAmount(tx));
+  });
+
+  const criteria = [...new Set([...budgetMap.keys(), ...actualMap.keys()])];
+  return criteria.map((name) => {
+    const budget = budgetMap.get(name) || 0;
+    const used = actualMap.get(name) || 0;
+    const remaining = budget - used;
+    const utilization = budget > 0 ? used / budget * 100 : (used > 0 ? Infinity : 0);
+    return { criteria: name, budget, used, remaining, utilization, over: used > budget };
+  }).sort((a, b) => b.budget - a.budget || b.used - a.used || a.criteria.localeCompare(b.criteria, "ko"));
+}
+
+function quarterBudgetRows(month, monthlyBudget) {
+  const totalDays = daysInMonth(month);
+  const definitions = [
+    { key: "Q1", label: "1~7일", start: 1, end: Math.min(7, totalDays) },
+    { key: "Q2", label: "8~14일", start: 8, end: Math.min(14, totalDays) },
+    { key: "Q3", label: "15~21일", start: 15, end: Math.min(21, totalDays) },
+    { key: "Q4", label: `22~${totalDays}일`, start: 22, end: totalDays },
+  ];
+  const txs = monthlyTransactions(month).filter((tx) => Number(tx.amount) < 0);
+  return definitions.map((quarter) => {
+    const dayCount = Math.max(0, quarter.end - quarter.start + 1);
+    const budget = totalDays ? monthlyBudget * dayCount / totalDays : monthlyBudget / 4;
+    const used = txs.filter((tx) => txQuarter(tx) === quarter.key).reduce((sum, tx) => sum + absAmount(tx), 0);
+    return { ...quarter, dayCount, budget, used, remaining: budget - used, utilization: budget ? used / budget * 100 : 0, over: used > budget };
+  });
+}
 
 function transactionMatchesMaster(tx, master) {
   if (!master) return false;
@@ -647,50 +714,122 @@ function renderDashboard() {
   if (!els.dashboardMonth.value) els.dashboardMonth.value = currentMonth();
   const month = els.dashboardMonth.value;
   const txs = monthlyTransactions(month);
-  const income = txs.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + Number(tx.amount), 0);
-  const totalOutflow = txs.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0);
-  const savings = txs.filter((tx) => tx.amount < 0 && tx.criteriaSnapshot === "저축").reduce((sum, tx) => sum + absAmount(tx), 0);
-  const living = totalOutflow - savings;
-  const net = income - totalOutflow;
-  const budget = expenseMasters().reduce((sum, m) => sum + Math.abs(Number(m.monthlyAmount)), 0);
-  const utilization = budget ? totalOutflow / budget * 100 : 0;
+  const incomeInfo = incomeForMonth(month);
+  const availableIncome = incomeInfo.amount;
+  const criteriaRows = criteriaBudgetRows(month);
+  const plannedBudget = criteriaRows.reduce((sum, row) => sum + row.budget, 0);
+  const totalOutflow = criteriaRows.reduce((sum, row) => sum + row.used, 0);
+  const budgetRemaining = plannedBudget - totalOutflow;
+  const incomeRemaining = availableIncome - totalOutflow;
+  const allocationGap = availableIncome - plannedBudget;
   const latestAsset = [...state.assets].filter((a) => String(a.date).slice(0, 7) <= month).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
 
   renderKpiCards(els.dashboardKpis, [
-    { label: "수입", value: formatWon(income), tone: "good", sub: `${month} 입금` },
-    { label: "생활 지출", value: formatWon(living), tone: living > 0 ? "bad" : "", sub: "저축 제외" },
-    { label: "저축", value: formatWon(savings), tone: "warn", sub: "Criteria = 저축" },
-    { label: "순현금흐름", value: formatWon(net, true), tone: net >= 0 ? "good" : "bad", sub: `예산 사용률 ${formatPercent(utilization)}` },
+    {
+      label: "월급 (+상여금)",
+      value: incomeInfo.hasSalary ? formatWon(availableIncome) : "미입력",
+      tone: incomeInfo.hasSalary ? "good" : "warn",
+      sub: incomeInfo.hasSalary ? `${incomeInfo.sourceDate} 입력 · ${month} 사용` : `${shiftMonth(month, -1)} 월말 자산에서 입력`,
+    },
+    { label: "Criteria 계획 총액", value: formatWon(plannedBudget), tone: "", sub: `${criteriaRows.filter((row) => row.budget > 0).length}개 Criteria 합계` },
+    { label: "실시간 사용", value: formatWon(totalOutflow), tone: totalOutflow > plannedBudget ? "bad" : "warn", sub: `${month} 가계부 지출·저축` },
+    { label: "예산 기준 남은 금액", value: formatWon(budgetRemaining), tone: budgetRemaining >= 0 ? "good" : "bad", sub: `사용률 ${formatPercent(plannedBudget ? totalOutflow / plannedBudget * 100 : 0)}` },
+    { label: "수입 기준 남은 금액", value: incomeInfo.hasSalary ? formatWon(incomeRemaining) : "-", tone: incomeInfo.hasSalary && incomeRemaining >= 0 ? "good" : incomeInfo.hasSalary ? "bad" : "warn", sub: incomeInfo.hasSalary ? `수입 - 실사용 · 배분 후 ${formatWon(allocationGap)}` : "월급(+상여금) 입력 필요" },
     { label: "최근 총자산", value: latestAsset ? formatWon(latestAsset.total) : "미입력", tone: "", sub: latestAsset?.date || "월말 자산에서 입력" },
   ]);
 
-  const months = monthRange(shiftMonth(month, -11), month);
-  chart("dashboardCashflow", "dashboard-cashflow-chart", {
+  els.dashboardBudgetSummary.textContent = incomeInfo.hasSalary
+    ? `${incomeInfo.sourceDate} 월급(+상여금) ${formatWon(availableIncome)} · Criteria 배분 ${formatWon(plannedBudget)} · 미배분/초과 계획 ${formatWon(allocationGap)}`
+    : `${shiftMonth(month, -1)} 월말 자산에 월급(+상여금)을 입력하면 수입 기준 잔액이 계산됩니다.`;
+
+  els.dashboardCriteriaTbody.innerHTML = criteriaRows.length ? criteriaRows.map((row) => `
+    <tr class="${row.over ? "budget-over" : ""}">
+      <td><strong>${escapeHtml(row.criteria)}</strong></td>
+      <td class="number">${formatWon(row.budget)}</td>
+      <td class="number">${formatWon(row.used)}</td>
+      <td class="number ${row.remaining < 0 ? "amount-expense" : "amount-income"}">${formatWon(row.remaining)}</td>
+      <td><div class="progress ${row.over ? "over" : ""}"><span style="width:${Math.min(Number.isFinite(row.utilization) ? row.utilization : 100, 100)}%"></span></div><small>${Number.isFinite(row.utilization) ? formatPercent(row.utilization) : "예산 없음"}</small></td>
+      <td><span class="badge ${row.over ? "danger" : row.utilization >= 80 ? "warn" : "ok"}">${row.over ? "초과" : row.utilization >= 80 ? "주의" : "여유"}</span></td>
+    </tr>`).join("") : `<tr><td colspan="6"><div class="empty-state">기준표에 지출·저축 Criteria를 추가해 주세요.</div></td></tr>`;
+  els.dashboardCriteriaTfoot.innerHTML = criteriaRows.length ? `<tr><th>TTL</th><th class="number">${formatWon(plannedBudget)}</th><th class="number">${formatWon(totalOutflow)}</th><th class="number">${formatWon(budgetRemaining)}</th><th>${formatPercent(plannedBudget ? totalOutflow / plannedBudget * 100 : 0)}</th><th></th></tr>` : "";
+
+  const quarterRows = quarterBudgetRows(month, plannedBudget);
+  const today = todayString();
+  const currentQuarterKey = today.slice(0, 7) === month ? txQuarter({ date: today }) : null;
+  els.dashboardQuarterCards.innerHTML = quarterRows.map((row) => `
+    <div class="quarter-card ${row.over ? "over" : ""} ${row.key === currentQuarterKey ? "current" : ""}">
+      <div class="quarter-card-head"><strong>${row.key}</strong><span>${row.label} · ${row.dayCount}일</span></div>
+      <div class="quarter-remaining ${row.remaining < 0 ? "negative" : ""}">${formatWon(row.remaining)}</div>
+      <div class="quarter-meta"><span>배정 ${formatWon(row.budget)}</span><span>사용 ${formatWon(row.used)}</span></div>
+      <div class="progress ${row.over ? "over" : ""}"><span style="width:${Math.min(row.utilization, 100)}%"></span></div>
+    </div>`).join("");
+  const currentQuarter = quarterRows.find((row) => row.key === currentQuarterKey);
+  els.dashboardQuarterSummary.textContent = currentQuarter
+    ? `${month} 현재 ${currentQuarter.key} · ${currentQuarter.label}에 ${formatWon(currentQuarter.remaining)} 더 사용 가능 · 월 예산은 실제 일수 비율로 배분`
+    : `${month} Q1~Q4별 배정액·사용액·남은 금액 · 월 예산은 실제 일수 비율로 배분`;
+
+  chart("dashboardQuarterBalance", "dashboard-quarter-balance-chart", {
     type: "bar",
     data: {
-      labels: months,
+      labels: quarterRows.map((row) => `${row.key} ${row.label}`),
       datasets: [
-        { label: "수입", data: months.map((m) => monthlyTransactions(m).filter((tx) => tx.amount > 0).reduce((s, tx) => s + Number(tx.amount), 0)), backgroundColor: "rgba(47,143,107,.72)", borderRadius: 5 },
-        { label: "지출·저축", data: months.map((m) => monthlyTransactions(m).filter((tx) => tx.amount < 0).reduce((s, tx) => s + absAmount(tx), 0)), backgroundColor: "rgba(214,69,69,.7)", borderRadius: 5 },
+        { label: "배정 예산", data: quarterRows.map((row) => row.budget), backgroundColor: "rgba(32,99,155,.35)", borderRadius: 5 },
+        { label: "실사용", data: quarterRows.map((row) => row.used), backgroundColor: "rgba(214,69,69,.7)", borderRadius: 5 },
+        { label: "남은 금액", data: quarterRows.map((row) => row.remaining), backgroundColor: quarterRows.map((row) => row.remaining >= 0 ? "rgba(47,143,107,.72)" : "rgba(214,69,69,.9)"), borderRadius: 5 },
       ],
     },
     options: baseChartOptions(),
   });
 
-  const categoryMap = new Map();
-  txs.filter((tx) => tx.amount < 0).forEach((tx) => categoryMap.set(tx.criteriaSnapshot, (categoryMap.get(tx.criteriaSnapshot) || 0) + absAmount(tx)));
+  const months = monthRange(shiftMonth(month, -11), month);
+  const monthMetrics = months.map((m) => {
+    const monthRows = criteriaBudgetRows(m);
+    const budget = monthRows.reduce((sum, row) => sum + row.budget, 0);
+    const used = monthRows.reduce((sum, row) => sum + row.used, 0);
+    const income = incomeForMonth(m).amount;
+    return { month: m, budget, used, budgetRemaining: budget - used, income, cashRemaining: income - used };
+  });
+
+  chart("dashboardBudgetTrend", "dashboard-budget-trend-chart", {
+    type: "line",
+    data: {
+      labels: months,
+      datasets: [
+        { label: "Criteria 예산", data: monthMetrics.map((row) => row.budget), borderColor: PALETTE[0], backgroundColor: `${PALETTE[0]}20`, tension: .25, pointRadius: 3 },
+        { label: "실사용", data: monthMetrics.map((row) => row.used), borderColor: PALETTE[3], backgroundColor: `${PALETTE[3]}20`, tension: .25, pointRadius: 3 },
+        { label: "예산 잔액", data: monthMetrics.map((row) => row.budgetRemaining), borderColor: PALETTE[1], backgroundColor: `${PALETTE[1]}20`, tension: .25, pointRadius: 3 },
+      ],
+    },
+    options: baseChartOptions(),
+  });
+
+  chart("dashboardCashflow", "dashboard-cashflow-chart", {
+    type: "bar",
+    data: {
+      labels: months,
+      datasets: [
+        { label: "월급(+상여금)", data: monthMetrics.map((row) => row.income), backgroundColor: "rgba(47,143,107,.72)", borderRadius: 5 },
+        { label: "실제 유출", data: monthMetrics.map((row) => row.used), backgroundColor: "rgba(214,69,69,.7)", borderRadius: 5 },
+        { type: "line", label: "수입 기준 잔액", data: monthMetrics.map((row) => row.cashRemaining), borderColor: PALETTE[0], backgroundColor: `${PALETTE[0]}22`, borderWidth: 2, tension: .25, pointRadius: 4 },
+      ],
+    },
+    options: baseChartOptions(),
+  });
+
+  const categoryRows = criteriaRows.filter((row) => row.used > 0);
   chart("dashboardCategory", "dashboard-category-chart", {
     type: "doughnut",
-    data: { labels: [...categoryMap.keys()], datasets: [{ data: [...categoryMap.values()], backgroundColor: [...categoryMap.keys()].map((_, i) => PALETTE[i % PALETTE.length]), borderWidth: 0 }] },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "63%", plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${formatWon(ctx.parsed)}` } } } },
+    data: { labels: categoryRows.map((row) => row.criteria), datasets: [{ data: categoryRows.map((row) => row.used), backgroundColor: categoryRows.map((_, i) => PALETTE[i % PALETTE.length]), borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "63%", plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${formatWon(ctx.parsed)} · ${totalOutflow ? formatPercent(ctx.parsed / totalOutflow * 100) : "0%"}` } } } },
   });
 
   const outlierMap = transactionOutlierMap();
   const alerts = [];
-  budgetRows(month).filter((row) => row.over).forEach((row) => alerts.push({ title: `${row.master.criteria} · ${row.master.item}`, detail: `USL ${formatWon(row.usl)} / Actual ${formatWon(row.used)}`, badge: "USL 초과" }));
+  criteriaRows.filter((row) => row.over).forEach((row) => alerts.push({ title: `${row.criteria} Criteria`, detail: `예산 ${formatWon(row.budget)} / 실사용 ${formatWon(row.used)} / 초과 ${formatWon(Math.abs(row.remaining))}`, badge: "Criteria 초과" }));
+  budgetRows(month).filter((row) => row.over).forEach((row) => alerts.push({ title: `${row.master.criteria} · ${row.master.item}`, detail: `USL ${formatWon(row.usl)} / Actual ${formatWon(row.used)}`, badge: "Item 초과" }));
   txs.filter((tx) => outlierMap.get(tx.id)?.outlier).forEach((tx) => alerts.push({ title: `${tx.itemSnapshot} · ${tx.place || "사용처 미입력"}`, detail: `${tx.date} 개인 결제 ${formatWon(absAmount(tx))}`, badge: "95% 이탈" }));
   els.dashboardAlerts.className = alerts.length ? "alert-list" : "alert-list empty-state";
-  els.dashboardAlerts.innerHTML = alerts.length ? alerts.slice(0, 8).map((item) => `<div class="alert-item"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p></div><span class="badge danger">${escapeHtml(item.badge)}</span></div>`).join("") : "선택 월에 예산 초과 또는 통계적 이상 지출이 없습니다.";
+  els.dashboardAlerts.innerHTML = alerts.length ? alerts.slice(0, 10).map((item) => `<div class="alert-item"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p></div><span class="badge danger">${escapeHtml(item.badge)}</span></div>`).join("") : "선택 월에 예산 초과 또는 통계적 이상 지출이 없습니다.";
 }
 
 function populateStatisticsSelectors() {
@@ -1016,45 +1155,88 @@ function resetAssetForm() {
   els.assetForm.reset();
   els.assetId.value = "";
   els.assetDate.value = nextAssetDefaultDate();
+  els.assetSalaryBonus.value = "";
   els.assetFormTitle.textContent = "월말 자산 입력";
   els.assetCancelBtn.classList.add("hidden");
   updateAssetPreview();
 }
 
+function normalizedAsset(asset) {
+  const cash = Number(asset.cash || 0);
+  const stock = Number(asset.stock || 0);
+  const insurance = Number(asset.insurance || 0);
+  return {
+    ...asset,
+    salaryBonus: Number(asset.salaryBonus || 0),
+    cash,
+    stock,
+    insurance,
+    total: cash + stock + insurance,
+  };
+}
+
+function replaceAssetInLocalState(asset, removedId = "") {
+  state.assets = state.assets
+    .filter((item) => item.id !== removedId && item.id !== asset.id)
+    .concat(normalizedAsset(asset))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (state.activeView === "assets") renderAssets();
+  if (state.activeView === "dashboard") renderDashboard();
+}
+
 async function saveAsset(event) {
   event.preventDefault();
+  const date = els.assetDate.value;
+  const salaryBonus = Number(els.assetSalaryBonus.value);
   const cash = Number(els.assetCash.value);
   const stock = Number(els.assetStock.value);
   const insurance = Number(els.assetInsurance.value);
-  const payload = { date: els.assetDate.value, month: els.assetDate.value.slice(0, 7), cash, stock, insurance, total: cash + stock + insurance, updatedAt: serverTimestamp() };
+  const values = { date, month: date.slice(0, 7), salaryBonus, cash, stock, insurance, total: cash + stock + insurance };
+  const payload = { ...values, updatedAt: serverTimestamp() };
+  const editingId = els.assetId.value;
+  const sameDate = state.assets.find((asset) => asset.date === date && asset.id !== editingId);
+
   try {
-    if (els.assetId.value) {
-      await updateDoc(userDoc("assets", els.assetId.value), payload);
-      toast("월말 자산 기록을 수정했습니다.");
+    if (editingId && sameDate) {
+      const batch = writeBatch(db);
+      batch.update(userDoc("assets", sameDate.id), payload);
+      batch.delete(userDoc("assets", editingId));
+      await batch.commit();
+      replaceAssetInLocalState({ id: sameDate.id, ...values }, editingId);
+      toast("같은 기준일 기록에 변경값을 합쳐 Trend를 갱신했습니다.");
+    } else if (editingId) {
+      await updateDoc(userDoc("assets", editingId), payload);
+      replaceAssetInLocalState({ id: editingId, ...values });
+      toast("월말 자산 기록과 Trend를 수정했습니다.");
+    } else if (sameDate) {
+      await updateDoc(userDoc("assets", sameDate.id), payload);
+      replaceAssetInLocalState({ id: sameDate.id, ...values });
+      toast("같은 기준일의 자산 기록과 Trend를 갱신했습니다.");
     } else {
-      const sameDate = state.assets.find((a) => a.date === payload.date);
-      if (sameDate) await updateDoc(userDoc("assets", sameDate.id), payload);
-      else await addDoc(userCollection("assets"), { ...payload, createdAt: serverTimestamp() });
-      toast(sameDate ? "같은 기준일의 자산 기록을 갱신했습니다." : "월말 자산을 저장했습니다.");
+      const created = await addDoc(userCollection("assets"), { ...payload, createdAt: serverTimestamp() });
+      replaceAssetInLocalState({ id: created.id, ...values });
+      toast("월말 자산을 저장하고 Trend에 반영했습니다.");
     }
     resetAssetForm();
   } catch (error) { toast(humanError(error), "error"); }
 }
 
 function renderAssets() {
-  const labels = state.assets.map((a) => a.date);
+  const assets = state.assets.map(normalizedAsset).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const labels = assets.map((a) => a.date);
   chart("assets", "asset-trend-chart", {
     type: "line",
     data: { labels, datasets: [
-      { label: "Cash", data: state.assets.map((a) => a.cash), borderColor: PALETTE[0], tension: .2, pointRadius: 4 },
-      { label: "Stock", data: state.assets.map((a) => a.stock), borderColor: PALETTE[1], tension: .2, pointRadius: 4 },
-      { label: "Insurance", data: state.assets.map((a) => a.insurance), borderColor: PALETTE[2], tension: .2, pointRadius: 4 },
-      { label: "All", data: state.assets.map((a) => a.total), borderColor: PALETTE[3], borderWidth: 3, tension: .2, pointRadius: 5 },
+      { label: "월급(+상여금)", data: assets.map((a) => a.salaryBonus), borderColor: PALETTE[4], borderDash: [7, 5], borderWidth: 2, tension: .2, pointRadius: 4, pointStyle: "rectRot" },
+      { label: "Cash", data: assets.map((a) => a.cash), borderColor: PALETTE[0], tension: .2, pointRadius: 4 },
+      { label: "Stock", data: assets.map((a) => a.stock), borderColor: PALETTE[1], tension: .2, pointRadius: 4 },
+      { label: "Insurance", data: assets.map((a) => a.insurance), borderColor: PALETTE[2], tension: .2, pointRadius: 4 },
+      { label: "All", data: assets.map((a) => a.total), borderColor: PALETTE[3], borderWidth: 3, tension: .2, pointRadius: 5 },
     ] },
     options: baseChartOptions(),
   });
-  els.assetTbody.innerHTML = state.assets.length ? [...state.assets].reverse().map((a) => `
-    <tr><td>${escapeHtml(a.date)}</td><td class="number">${formatWon(a.cash)}</td><td class="number">${formatWon(a.stock)}</td><td class="number">${formatWon(a.insurance)}</td><td class="number"><strong>${formatWon(a.total)}</strong></td><td><div class="row-actions"><button class="table-btn" data-action="edit-asset" data-id="${a.id}">수정</button><button class="table-btn danger" data-action="delete-asset" data-id="${a.id}">삭제</button></div></td></tr>`).join("") : `<tr><td colspan="6"><div class="empty-state">월급 수령일 기준 자산을 입력해 주세요.</div></td></tr>`;
+  els.assetTbody.innerHTML = assets.length ? [...assets].reverse().map((a) => `
+    <tr><td>${escapeHtml(a.date)}</td><td class="number"><strong>${formatWon(a.salaryBonus)}</strong></td><td class="number">${formatWon(a.cash)}</td><td class="number">${formatWon(a.stock)}</td><td class="number">${formatWon(a.insurance)}</td><td class="number"><strong>${formatWon(a.total)}</strong></td><td><div class="row-actions"><button class="table-btn" data-action="edit-asset" data-id="${a.id}">수정</button><button class="table-btn danger" data-action="delete-asset" data-id="${a.id}">삭제</button></div></td></tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">월급 수령일 기준 자산과 월급(+상여금)을 입력해 주세요.</div></td></tr>`;
 }
 
 function editAsset(id) {
@@ -1062,6 +1244,7 @@ function editAsset(id) {
   if (!asset) return;
   els.assetId.value = asset.id;
   els.assetDate.value = asset.date;
+  els.assetSalaryBonus.value = Number(asset.salaryBonus || 0);
   els.assetCash.value = asset.cash;
   els.assetStock.value = asset.stock;
   els.assetInsurance.value = asset.insurance;
