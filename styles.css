@@ -93,10 +93,11 @@ textarea { resize: vertical; }
 .nav-item {
   display: flex; align-items: center; gap: 11px; width: 100%; padding: 11px 12px; border: 0; border-radius: 10px;
   color: #b8cad7; background: transparent; text-align: left; font-weight: 700;
+  transition: background .22s ease, color .22s ease, transform .22s ease, box-shadow .22s ease;
 }
 .nav-item span { width: 20px; text-align: center; opacity: .9; }
-.nav-item:hover { background: rgba(255,255,255,.07); color: white; }
-.nav-item.active { background: rgba(255,255,255,.13); color: white; box-shadow: inset 3px 0 0 var(--accent); }
+.nav-item:hover { background: rgba(255,255,255,.07); color: white; transform: translateX(2px); }
+.nav-item.active { background: rgba(255,255,255,.13); color: white; box-shadow: inset 3px 0 0 var(--accent); transform: translateX(2px); }
 .sidebar-footer { margin-top: auto; display: grid; gap: 10px; }
 .user-email { color: #9eb3c3; font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 .main-content { margin-left: var(--sidebar); min-height: 100vh; padding: 0 30px 42px; }
@@ -112,7 +113,17 @@ textarea { resize: vertical; }
 .sync-status.error::before { content: "●"; color: var(--danger); margin-right: 5px; }
 
 .view { display: none; }
-.view.active { display: block; }
+.view.active { display: block; animation: view-enter .34s cubic-bezier(.22,.8,.28,1) both; }
+
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.997); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+::view-transition-old(root) { animation: view-old .16s ease both; }
+::view-transition-new(root) { animation: view-new .32s cubic-bezier(.22,.8,.28,1) both; }
+@keyframes view-old { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes view-new { from { opacity: 0; transform: translateY(8px); } }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 18px; }
 .section-heading.compact { align-items: center; }
 .section-heading h3, .panel-heading h3 { margin: 0; font-size: 17px; }
@@ -251,4 +262,9 @@ tr.archived td { color: #8d97a6; background: #f7f8fa; }
   .filter-row input[type="search"] { min-width: 100%; }
   .chart-wrap { min-height: 260px; }
   .auth-card { padding: 25px; }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

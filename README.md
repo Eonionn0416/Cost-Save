@@ -9,15 +9,23 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
 - 기준표 수정 및 보관: Criteria, Item, 월 Amount, 고정/유동, 기본 Bank
 - 과거 기록 보존: 가계부 저장 시 기준 정보를 스냅샷으로 함께 저장하므로 기준표 수정·보관 후에도 과거 표시가 유지됨
 - 월별 KPI 및 예산 USL 비교
-- 월 × Bank, Criteria, Item, 사용처 Trend
+- 월 × Bank, Criteria, Item, 목적 Trend
+  - Item Trend의 Criteria 선택이 목적 Trend에 자동 연동
+- 월 × Quarter 사용 금액 Trend
+  - Q1 1~7일, Q2 8~14일, Q3 15~21일, Q4 22일~말일 기준
+  - 월별 최고 사용 Quarter를 강조 표시
+  - 선택 종료 월의 실제 지출이 가장 큰 Criteria를 최초 기본값으로 표시
 - 유동 지출 SPC
   - 월 사용액이 USL을 초과한 점 표시
   - 6개월 연속 상승(6-point rise) 표시
   - 개인 결제금액 `평균 + 1.96 × 표준편차` 초과 행 표시
+  - 선택 Item의 일별 결제 합계를 월별 Min·Avg·Max Trend로 표시
+  - 전체 기간 일별 분포의 95% 상한을 초과한 월별 Max 점 강조
   - 단측 Cpk 및 Rolling Cpk Trend
 - 월급 수령일 기준 Cash, Stock, Insurance, All 자산 Trend
 - 가계부 CSV 내보내기
 - 반응형 PC/모바일 화면
+- 탭 화면 전환 페이드·슬라이드 모션 및 사용자 모션 축소 설정 지원
 
 ## 데이터 구조
 
@@ -103,6 +111,8 @@ http://localhost:5500
 - 가계부 입력창에는 항상 양수 금액을 입력합니다.
 - 월 USL은 기준표의 월 Amount 절댓값입니다.
 - 개인 결제 이상 상한은 같은 Item의 결제 데이터가 5건 이상일 때 `평균 + 1.96 × 표준편차`로 계산합니다.
+- 일별 Min·Avg·Max는 같은 날짜의 같은 Item 결제액을 먼저 합산한 뒤 월별로 계산합니다.
+- 일별 Max 이상점은 선택 기간의 일별 합계가 5일 이상일 때 `일별 평균 + 1.96 × 일별 표준편차`를 초과한 월별 Max입니다.
 - Cpk는 유동 Item의 월 합계에 대해 `(USL - 월평균) / (3 × 월 표준편차)`로 계산하는 단측 Cpk입니다.
 - Rolling Cpk는 선택 기간의 시작 월부터 해당 월까지 누적된 월 합계로 계산합니다.
 - 6-point rise는 6개월 월 합계가 연속으로 증가할 때 마지막 점을 표시합니다.

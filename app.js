@@ -65,6 +65,7 @@ const state = {
   charts: {},
   activeView: "dashboard",
   statsMonths: [],
+  statsCriteriaTouched: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -89,9 +90,9 @@ const els = {
   masterDialogClose: $("master-dialog-close"), masterDialogCancel: $("master-dialog-cancel"),
   statsStartMonth: $("stats-start-month"), statsEndMonth: $("stats-end-month"), statsRefreshBtn: $("stats-refresh-btn"),
   statsKpis: $("stats-kpis"), statsItemCriteria: $("stats-item-criteria"),
-  statsPlaceCriteria: $("stats-place-criteria"), statsPlaceItem: $("stats-place-item"),
+  statsPlaceItem: $("stats-place-item"), quarterTrendSummary: $("quarter-trend-summary"),
   budgetKpiMonth: $("budget-kpi-month"), budgetKpiTbody: $("budget-kpi-tbody"),
-  spcItemSelect: $("spc-item-select"), spcSummary: $("spc-summary"),
+  spcItemSelect: $("spc-item-select"), spcSummary: $("spc-summary"), dailyRangeSummary: $("daily-range-summary"),
   assetForm: $("asset-form"), assetId: $("asset-id"), assetDate: $("asset-date"),
   assetCash: $("asset-cash"), assetStock: $("asset-stock"), assetInsurance: $("asset-insurance"),
   assetTotalPreview: $("asset-total-preview"), assetCancelBtn: $("asset-cancel-btn"),
@@ -174,7 +175,34 @@ function activeMasters() { return state.masters.filter((item) => item.active !==
 function expenseMasters() { return activeMasters().filter((item) => Number(item.monthlyAmount) < 0); }
 function variableExpenseMasters() { return activeMasters().filter((item) => item.flowType === "유동" && Number(item.monthlyAmount) < 0); }
 function txMonth(tx) { return String(tx.date || "").slice(0, 7); }
+function txQuarter(tx) {
+  const day = Number(String(tx.date || "").slice(8, 10));
+  if (!Number.isFinite(day) || day < 1) return null;
+  if (day <= 7) return "Q1";
+  if (day <= 14) return "Q2";
+  if (day <= 21) return "Q3";
+  return "Q4";
+}
 function absAmount(tx) { return Math.abs(Number(tx.amount || 0)); }
+
+function transactionMatchesMaster(tx, master) {
+  if (!master) return false;
+  return tx.masterId === master.id
+    || (!tx.masterId && tx.criteriaSnapshot === master.criteria && tx.itemSnapshot === master.item);
+}
+
+function highestSpendCriteria(month, fallbackTransactions = [], allowedCriteria = []) {
+  const allowed = new Set(allowedCriteria.filter(Boolean));
+  const isAllowed = (tx) => tx.criteriaSnapshot && (!allowed.size || allowed.has(tx.criteriaSnapshot));
+  const monthTransactions = state.transactions.filter((tx) => tx.amount < 0 && txMonth(tx) === month && isAllowed(tx));
+  const source = monthTransactions.length ? monthTransactions : fallbackTransactions.filter(isAllowed);
+  const totals = new Map();
+  source.forEach((tx) => {
+    const criteria = tx.criteriaSnapshot;
+    totals.set(criteria, (totals.get(criteria) || 0) + absAmount(tx));
+  });
+  return [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || allowedCriteria[0] || "";
+}
 
 function setSync(text, type = "busy") {
   els.syncStatus.textContent = text;
@@ -254,17 +282,29 @@ function renderKpiCards(container, cards) {
 
 function setView(view) {
   if (!VIEW_META[view]) return;
-  state.activeView = view;
-  document.querySelectorAll(".view").forEach((node) => node.classList.toggle("active", node.id === `view-${view}`));
-  document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
-  els.pageKicker.textContent = VIEW_META[view][0];
-  els.pageTitle.textContent = VIEW_META[view][1];
-  els.quickAddBtn.classList.toggle("hidden", view === "ledger");
-  if (view === "dashboard") renderDashboard();
-  if (view === "ledger") renderLedger();
-  if (view === "master") renderMasterTable();
-  if (view === "statistics") renderStatistics();
-  if (view === "assets") renderAssets();
+
+  const activateView = () => {
+    state.activeView = view;
+    document.querySelectorAll(".view").forEach((node) => node.classList.toggle("active", node.id === `view-${view}`));
+    document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
+    els.pageKicker.textContent = VIEW_META[view][0];
+    els.pageTitle.textContent = VIEW_META[view][1];
+    els.quickAddBtn.classList.toggle("hidden", view === "ledger");
+    if (view === "dashboard") renderDashboard();
+    if (view === "ledger") renderLedger();
+    if (view === "master") renderMasterTable();
+    if (view === "statistics") renderStatistics();
+    if (view === "assets") renderAssets();
+  };
+
+  const current = document.querySelector(".view.active")?.id?.replace("view-", "");
+  if (current === view) {
+    activateView();
+  } else if (document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    document.startViewTransition(activateView);
+  } else {
+    activateView();
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -655,12 +695,12 @@ function renderDashboard() {
 
 function populateStatisticsSelectors() {
   const criteria = [...new Set(activeMasters().map((m) => m.criteria))].sort((a, b) => a.localeCompare(b, "ko"));
-  [els.statsItemCriteria, els.statsPlaceCriteria].forEach((select) => {
-    const previous = select.value;
-    select.innerHTML = criteria.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-    if (criteria.includes(previous)) select.value = previous;
-  });
+  const previous = els.statsItemCriteria.value;
+  els.statsItemCriteria.innerHTML = criteria.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  if (criteria.includes(previous)) els.statsItemCriteria.value = previous;
+
   populatePlaceItems();
+
   const variables = variableExpenseMasters();
   const previousSpc = els.spcItemSelect.value;
   els.spcItemSelect.innerHTML = variables.map((m) => `<option value="${m.id}">${escapeHtml(m.criteria)} · ${escapeHtml(m.item)}</option>`).join("");
@@ -668,11 +708,25 @@ function populateStatisticsSelectors() {
 }
 
 function populatePlaceItems() {
-  const criteria = els.statsPlaceCriteria.value;
+  const criteria = els.statsItemCriteria.value;
   const items = activeMasters().filter((m) => m.criteria === criteria);
   const previous = els.statsPlaceItem.value;
   els.statsPlaceItem.innerHTML = items.map((m) => `<option value="${m.id}">${escapeHtml(m.item)}</option>`).join("");
-  if (items.some((m) => m.id === previous)) els.statsPlaceItem.value = previous;
+  if (items.some((m) => m.id === previous)) {
+    els.statsPlaceItem.value = previous;
+    return;
+  }
+
+  const month = els.statsEndMonth.value || currentMonth();
+  const best = items
+    .map((master) => ({
+      master,
+      amount: state.transactions
+        .filter((tx) => tx.amount < 0 && txMonth(tx) === month && transactionMatchesMaster(tx, master))
+        .reduce((sum, tx) => sum + absAmount(tx), 0),
+    }))
+    .sort((a, b) => b.amount - a.amount)[0]?.master;
+  if (best) els.statsPlaceItem.value = best.id;
 }
 
 function groupMonthly(months, transactions, keyGetter) {
@@ -686,6 +740,59 @@ function groupMonthly(months, transactions, keyGetter) {
     pointRadius: 3,
     fill: false,
   }));
+}
+
+function renderQuarterTrend(months, transactions) {
+  const quarters = [
+    { key: "Q1", label: "Q1 · 1~7일", color: "#20639b" },
+    { key: "Q2", label: "Q2 · 8~14일", color: "#3caea3" },
+    { key: "Q3", label: "Q3 · 15~21일", color: "#f6c453" },
+    { key: "Q4", label: "Q4 · 22일~말일", color: "#ed553b" },
+  ];
+  const values = quarters.map((quarter) => months.map((month) => transactions
+    .filter((tx) => txMonth(tx) === month && txQuarter(tx) === quarter.key)
+    .reduce((sum, tx) => sum + absAmount(tx), 0)));
+  const monthlyMax = months.map((_, monthIndex) => Math.max(0, ...values.map((row) => row[monthIndex])));
+
+  chart("quarterTrend", "quarter-trend-chart", {
+    type: "bar",
+    data: {
+      labels: months,
+      datasets: quarters.map((quarter, quarterIndex) => ({
+        label: quarter.label,
+        data: values[quarterIndex],
+        backgroundColor: values[quarterIndex].map((value, monthIndex) => value > 0 && value === monthlyMax[monthIndex] ? `${quarter.color}dd` : `${quarter.color}77`),
+        borderColor: values[quarterIndex].map((value, monthIndex) => value > 0 && value === monthlyMax[monthIndex] ? "#d64545" : quarter.color),
+        borderWidth: values[quarterIndex].map((value, monthIndex) => value > 0 && value === monthlyMax[monthIndex] ? 3 : 1),
+        borderRadius: 5,
+      })),
+    },
+    options: baseChartOptions({
+      plugins: {
+        legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${formatWon(ctx.parsed.y ?? 0)}`,
+            footer: (items) => {
+              const monthIndex = items[0]?.dataIndex;
+              if (monthIndex === undefined) return "";
+              const monthTotal = values.reduce((sum, row) => sum + Number(row[monthIndex] || 0), 0);
+              return `월 전체 유출: ${formatWon(monthTotal)}`;
+            },
+          },
+        },
+      },
+    }),
+  });
+
+  const focusIndex = months.length - 1;
+  if (!els.quarterTrendSummary) return;
+  if (focusIndex < 0 || monthlyMax[focusIndex] <= 0) {
+    els.quarterTrendSummary.textContent = "Q1 1~7일 · Q2 8~14일 · Q3 15~21일 · Q4 22일~말일 · 조회 기간 데이터 없음";
+    return;
+  }
+  const bestQuarterIndex = values.findIndex((row) => row[focusIndex] === monthlyMax[focusIndex]);
+  els.quarterTrendSummary.textContent = `Q1 1~7일 · Q2 8~14일 · Q3 15~21일 · Q4 22일~말일 · ${months[focusIndex]} 최고 ${quarters[bestQuarterIndex].key} ${formatWon(monthlyMax[focusIndex])}`;
 }
 
 function renderStatistics() {
@@ -715,17 +822,112 @@ function renderStatistics() {
 
   chart("bankTrend", "bank-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, txs, (tx) => tx.bankSnapshot || "미지정") }, options: baseChartOptions() });
   chart("criteriaTrend", "criteria-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, txs, (tx) => tx.criteriaSnapshot) }, options: baseChartOptions() });
+  renderQuarterTrend(months, txs);
+
+  const criteriaOptions = [...els.statsItemCriteria.options].map((option) => option.value);
+  if (!state.statsCriteriaTouched || !criteriaOptions.includes(els.statsItemCriteria.value)) {
+    const defaultCriteria = highestSpendCriteria(els.statsEndMonth.value, txs, criteriaOptions);
+    if (defaultCriteria) els.statsItemCriteria.value = defaultCriteria;
+  }
+  populatePlaceItems();
 
   const itemCriteria = els.statsItemCriteria.value;
   const itemTxs = txs.filter((tx) => tx.criteriaSnapshot === itemCriteria);
   chart("itemTrend", "item-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, itemTxs, (tx) => tx.itemSnapshot) }, options: baseChartOptions() });
 
   const placeMaster = masterById(els.statsPlaceItem.value);
-  const placeTxs = txs.filter((tx) => tx.masterId === placeMaster?.id || (!tx.masterId && tx.criteriaSnapshot === placeMaster?.criteria && tx.itemSnapshot === placeMaster?.item));
+  const placeTxs = txs.filter((tx) => transactionMatchesMaster(tx, placeMaster));
   chart("placeTrend", "place-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, placeTxs, (tx) => tx.place || "미입력") }, options: baseChartOptions() });
 
   renderBudgetKpi();
   renderSpc();
+}
+
+function renderDailySpendRange(master, months) {
+  if (!master || !months.length) {
+    if (els.dailyRangeSummary) els.dailyRangeSummary.textContent = "선택한 SPC Item의 일별 데이터가 없습니다.";
+    chart("dailyRange", "daily-range-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    return;
+  }
+
+  const byMonthAndDate = new Map(months.map((month) => [month, new Map()]));
+  state.transactions
+    .filter((tx) => tx.amount < 0 && months.includes(txMonth(tx)) && transactionMatchesMaster(tx, master))
+    .forEach((tx) => {
+      const month = txMonth(tx);
+      const daily = byMonthAndDate.get(month);
+      daily.set(tx.date, (daily.get(tx.date) || 0) + absAmount(tx));
+    });
+
+  const stats = months.map((month) => {
+    const values = [...(byMonthAndDate.get(month)?.values() || [])];
+    return {
+      min: values.length ? Math.min(...values) : null,
+      avg: values.length ? mean(values) : null,
+      max: values.length ? Math.max(...values) : null,
+      count: values.length,
+    };
+  });
+
+  const allDailyValues = [...byMonthAndDate.values()].flatMap((daily) => [...daily.values()]);
+  const upper95 = allDailyValues.length >= 5 ? mean(allDailyValues) + 1.96 * sampleStd(allDailyValues) : null;
+  const maxOutliers = stats.map((row) => row.max !== null && upper95 !== null && row.max > upper95);
+  const outlierCount = maxOutliers.filter(Boolean).length;
+
+  if (els.dailyRangeSummary) {
+    els.dailyRangeSummary.textContent = upper95 === null
+      ? `${master.criteria} · ${master.item} · 일별 표본 ${allDailyValues.length}일 (95% 상한은 5일 이상 필요)`
+      : `${master.criteria} · ${master.item} · 95% 일별 상한 ${formatWon(upper95)} · Max 이상점 ${outlierCount}개`;
+  }
+
+  chart("dailyRange", "daily-range-chart", {
+    type: "line",
+    data: {
+      labels: months,
+      datasets: [
+        {
+          label: "일별 Min",
+          data: stats.map((row) => row.min),
+          borderColor: "#3caea3",
+          backgroundColor: "rgba(60,174,163,.10)",
+          tension: .22,
+          pointRadius: 3,
+          spanGaps: true,
+        },
+        {
+          label: "일별 Avg",
+          data: stats.map((row) => row.avg),
+          borderColor: "#20639b",
+          backgroundColor: "rgba(32,99,155,.10)",
+          tension: .22,
+          pointRadius: 4,
+          spanGaps: true,
+        },
+        {
+          label: "일별 Max",
+          data: stats.map((row) => row.max),
+          borderColor: "#ed553b",
+          backgroundColor: "rgba(237,85,59,.10)",
+          tension: .22,
+          pointBackgroundColor: maxOutliers.map((isOutlier) => isOutlier ? "#d64545" : "#ed553b"),
+          pointBorderColor: maxOutliers.map((isOutlier) => isOutlier ? "#d64545" : "#ed553b"),
+          pointRadius: maxOutliers.map((isOutlier) => isOutlier ? 7 : 4),
+          pointHoverRadius: maxOutliers.map((isOutlier) => isOutlier ? 9 : 6),
+          spanGaps: true,
+        },
+        {
+          label: "95% 일별 상한",
+          data: months.map(() => upper95),
+          borderColor: "#d64545",
+          borderDash: [7, 5],
+          pointRadius: 0,
+          fill: false,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: baseChartOptions(),
+  });
 }
 
 function renderBudgetKpi() {
@@ -747,17 +949,19 @@ function renderSpc() {
   if (!master || !state.statsMonths.length) {
     els.spcSummary.innerHTML = `<div class="empty-state">유동 지출 Item을 추가하면 SPC를 계산합니다.</div>`;
     chart("spc", "spc-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    chart("dailyRange", "daily-range-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
     chart("cpk", "cpk-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    if (els.dailyRangeSummary) els.dailyRangeSummary.textContent = "유동 지출 Item을 추가하면 일별 Min · Avg · Max를 계산합니다.";
     return;
   }
   els.spcItemSelect.value = master.id;
   const months = state.statsMonths;
-  const monthlyValues = months.map((month) => state.transactions.filter((tx) => tx.masterId === master.id && txMonth(tx) === month && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
+  const monthlyValues = months.map((month) => state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && txMonth(tx) === month && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
   const usl = Math.abs(Number(master.monthlyAmount));
   const breaches = monthlyValues.map((value) => value > usl);
   const rises = monthlyValues.map((_, index) => index >= 5 && monthlyValues.slice(index - 5, index + 1).every((value, i, arr) => i === 0 || value > arr[i - 1]));
   const pointColors = monthlyValues.map((_, i) => breaches[i] || rises[i] ? "#d64545" : "#20639b");
-  const itemTxValues = state.transactions.filter((tx) => tx.masterId === master.id && tx.amount < 0).map(absAmount);
+  const itemTxValues = state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && tx.amount < 0).map(absAmount);
   const upper95 = itemTxValues.length >= 5 ? mean(itemTxValues) + 1.96 * sampleStd(itemTxValues) : null;
   const cpk = cpkOneSided(usl, monthlyValues);
   const rolling = monthlyValues.map((_, index) => index < 2 ? null : cpkOneSided(usl, monthlyValues.slice(0, index + 1)));
@@ -779,6 +983,8 @@ function renderSpc() {
     ] },
     options: baseChartOptions({ scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: "rgba(104,115,134,.12)" }, ticks: { font: { size: 10 } } } }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3) ?? "-"}` } } } }),
   });
+
+  renderDailySpendRange(master, months);
 
   const cpkText = cpk === Infinity ? "∞" : cpk === -Infinity ? "-∞" : cpk === null ? "-" : cpk.toFixed(3);
   const cpkStatus = cpk !== null && cpk >= 1.33 ? "양호" : "개선 필요";
@@ -927,9 +1133,15 @@ function bindEvents() {
     if (button.dataset.action === "toggle-master") toggleMaster(button.dataset.id);
   });
 
-  els.statsRefreshBtn.addEventListener("click", renderStatistics);
-  els.statsItemCriteria.addEventListener("change", renderStatistics);
-  els.statsPlaceCriteria.addEventListener("change", () => { populatePlaceItems(); renderStatistics(); });
+  els.statsRefreshBtn.addEventListener("click", () => {
+    state.statsCriteriaTouched = false;
+    renderStatistics();
+  });
+  els.statsItemCriteria.addEventListener("change", () => {
+    state.statsCriteriaTouched = true;
+    populatePlaceItems();
+    renderStatistics();
+  });
   els.statsPlaceItem.addEventListener("change", renderStatistics);
   els.budgetKpiMonth.addEventListener("change", renderBudgetKpi);
   els.spcItemSelect.addEventListener("change", renderSpc);
@@ -960,6 +1172,7 @@ initializeDefaults();
 
 onAuthStateChanged(auth, (user) => {
   state.user = user;
+  state.statsCriteriaTouched = false;
   if (user) {
     els.authScreen.classList.add("hidden");
     els.appShell.classList.remove("hidden");

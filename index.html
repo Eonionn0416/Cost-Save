@@ -251,6 +251,15 @@
             <div class="chart-wrap"><canvas id="criteria-trend-chart"></canvas></div>
           </article>
           <article class="panel span-3">
+            <div class="panel-heading">
+              <div>
+                <h3>Monthly × Quarter 사용 금액 Trend</h3>
+                <p id="quarter-trend-summary">Q1 1~7일 · Q2 8~14일 · Q3 15~21일 · Q4 22일~말일</p>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="quarter-trend-chart"></canvas></div>
+          </article>
+          <article class="panel span-3">
             <div class="panel-heading wrap">
               <div><h3>Monthly × Item 사용 금액 Trend</h3><p>선택 Criteria에 속한 Item별 추세</p></div>
               <select id="stats-item-criteria" class="compact-select"></select>
@@ -260,10 +269,7 @@
           <article class="panel span-3">
             <div class="panel-heading wrap">
               <div><h3>Monthly × 목적 Trend</h3><p>선택 Item의 목적별 추세</p></div>
-              <div class="filter-row">
-                <select id="stats-place-criteria" class="compact-select"></select>
-                <select id="stats-place-item" class="compact-select"></select>
-              </div>
+              <select id="stats-place-item" class="compact-select" aria-label="목적 Trend Item 선택"></select>
             </div>
             <div class="chart-wrap"><canvas id="place-trend-chart"></canvas></div>
           </article>
@@ -299,6 +305,15 @@
           <article class="panel">
             <div class="panel-heading"><div><h3>SPC Summary</h3><p>단측 Cpk와 95% 개인 결제 상한</p></div></div>
             <div id="spc-summary" class="metric-stack"></div>
+          </article>
+          <article class="panel span-3">
+            <div class="panel-heading">
+              <div>
+                <h3>월별 일일 지출 Min · Avg · Max Trend</h3>
+                <p id="daily-range-summary">선택한 SPC Item의 같은 날짜 결제액을 합산해 월별 범위를 계산합니다.</p>
+              </div>
+            </div>
+            <div class="chart-wrap"><canvas id="daily-range-chart"></canvas></div>
           </article>
           <article class="panel span-3">
             <div class="panel-heading"><div><h3>Rolling Cpk Trend</h3><p>해당 월까지의 누적 월 지출 분포로 계산</p></div></div>
