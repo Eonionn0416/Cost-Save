@@ -9,6 +9,9 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
 - 기준표 수정 및 보관: Criteria, Item, 월 Amount, 고정/유동, 기본 Bank
 - 과거 기록 보존: 가계부 저장 시 기준 정보를 스냅샷으로 함께 저장하므로 기준표 수정·보관 후에도 과거 표시가 유지됨
 - 월별 KPI 및 예산 USL 비교
+- 대시보드 월별 예산·현금흐름과 통계/SPC Trend는 기본적으로 현재 월의 다음 달까지 표시
+- 통계/SPC 기본 범위는 13개월이며, 2026년 7월 기준 2025-08~2026-08
+- 미래 월은 X축에 표시하되 SPC 평균·표준편차·Cpk 계산에서는 제외
 - 월 × Bank, Criteria, Item, 목적 Trend
   - Item Trend의 Criteria 선택이 목적 Trend에 자동 연동
 - 월 × Quarter 사용 금액 Trend
@@ -30,7 +33,7 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
 - 대시보드 실시간 예산 관리
   - Criteria별 기준표 Amount 합계, 실사용, 잔액, 사용률
   - Q1~Q4 실제 일수 비례 예산, 실사용 및 잔액
-  - 최근 12개월 Criteria 예산·실사용·잔액 Trend
+  - 전년 동월부터 다음 달까지 13개월 Criteria 예산·실사용·잔액 Trend
   - 전월 월말 월급(+상여금) 기준 현금 흐름 Trend
 - 가계부 CSV 내보내기
 - 반응형 PC/모바일 화면

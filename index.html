@@ -126,7 +126,7 @@
             <div class="panel-heading">
               <div>
                 <h3>월별 예산 · 사용 · 잔액 Trend</h3>
-                <p>최근 12개월의 Criteria 예산 총액, 실사용 및 남은 금액</p>
+                <p>전년 동월부터 다음 달까지 13개월의 Criteria 예산 총액, 실사용 및 남은 금액</p>
               </div>
             </div>
             <div class="chart-wrap"><canvas id="dashboard-budget-trend-chart"></canvas></div>
@@ -136,7 +136,7 @@
             <div class="panel-heading">
               <div>
                 <h3>월별 현금 흐름</h3>
-                <p>전월 월말 월급(+상여금) 대비 실제 유출과 잔액</p>
+                <p>전년 동월부터 다음 달까지 월급(+상여금) 대비 실제 유출과 잔액</p>
               </div>
             </div>
             <div class="chart-wrap"><canvas id="dashboard-cashflow-chart"></canvas></div>
@@ -268,7 +268,7 @@
         <div class="section-heading">
           <div>
             <h3>Monthly KPI · Trend · SPC</h3>
-            <p>월별 실적은 기준표 금액을 USL로 사용하고, 유동 지출은 통계적 이상 여부를 함께 확인합니다.</p>
+            <p>기본 조회기간은 전년 동월부터 다음 달까지 13개월이며, 미래 월은 차트에만 표시하고 SPC 계산에서는 제외합니다.</p>
           </div>
           <div class="filter-row">
             <label class="inline-label">시작 <input id="stats-start-month" type="month" /></label>

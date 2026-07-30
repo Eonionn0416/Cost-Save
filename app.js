@@ -117,6 +117,20 @@ function todayString() {
 
 function currentMonth() { return todayString().slice(0, 7); }
 
+function trendEndMonth() { return shiftMonth(currentMonth(), 1); }
+
+function defaultTrendRange() {
+  const end = trendEndMonth();
+  return { start: shiftMonth(end, -12), end };
+}
+
+function statisticsFocusMonth(months = state.statsMonths) {
+  const current = currentMonth();
+  if (months.includes(current)) return current;
+  const available = months.filter((month) => month <= current);
+  return available.at(-1) || months[0] || current;
+}
+
 function shiftMonth(month, delta) {
   const [y, m] = month.split("-").map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -819,7 +833,8 @@ function renderDashboard() {
     options: baseChartOptions(),
   });
 
-  const months = monthRange(shiftMonth(month, -11), month);
+  const trendRange = defaultTrendRange();
+  const months = monthRange(trendRange.start, trendRange.end);
   const monthMetrics = months.map((m) => {
     const monthRows = criteriaBudgetRows(m);
     const budget = monthRows.reduce((sum, row) => sum + row.budget, 0);
@@ -894,7 +909,8 @@ function populatePlaceItems() {
     return;
   }
 
-  const month = els.statsEndMonth.value || currentMonth();
+  const fallbackMonths = monthRange(els.statsStartMonth.value, els.statsEndMonth.value);
+  const month = statisticsFocusMonth(state.statsMonths.length ? state.statsMonths : fallbackMonths);
   const best = items
     .map((master) => ({
       master,
@@ -962,7 +978,14 @@ function renderQuarterTrend(months, transactions) {
     }),
   });
 
-  const focusIndex = months.length - 1;
+  let focusIndex = -1;
+  for (let index = months.length - 1; index >= 0; index -= 1) {
+    if (months[index] <= currentMonth() && monthlyMax[index] > 0) {
+      focusIndex = index;
+      break;
+    }
+  }
+  if (focusIndex < 0) focusIndex = months.indexOf(statisticsFocusMonth(months));
   if (!els.quarterTrendSummary) return;
   if (focusIndex < 0 || monthlyMax[focusIndex] <= 0) {
     els.quarterTrendSummary.textContent = "Q1 1~7일 · Q2 8~14일 · Q3 15~21일 · Q4 22일~말일 · 조회 기간 데이터 없음";
@@ -973,25 +996,28 @@ function renderQuarterTrend(months, transactions) {
 }
 
 function renderStatistics() {
-  if (!els.statsEndMonth.value) els.statsEndMonth.value = currentMonth();
-  if (!els.statsStartMonth.value) els.statsStartMonth.value = shiftMonth(els.statsEndMonth.value, -11);
-  if (!els.budgetKpiMonth.value) els.budgetKpiMonth.value = els.statsEndMonth.value;
+  const defaultRange = defaultTrendRange();
+  if (!els.statsEndMonth.value) els.statsEndMonth.value = defaultRange.end;
+  if (!els.statsStartMonth.value) els.statsStartMonth.value = defaultRange.start;
+  if (!els.budgetKpiMonth.value) els.budgetKpiMonth.value = currentMonth();
   const months = monthRange(els.statsStartMonth.value, els.statsEndMonth.value);
+  const analysisMonths = months.filter((month) => month <= currentMonth());
   state.statsMonths = months;
   const txs = state.transactions.filter((tx) => months.includes(txMonth(tx)) && tx.amount < 0);
-  const total = txs.reduce((sum, tx) => sum + absAmount(tx), 0);
-  const avgMonthly = months.length ? total / months.length : 0;
-  const overCount = months.reduce((sum, month) => sum + budgetRows(month).filter((row) => row.over).length, 0);
+  const analysisTxs = txs.filter((tx) => txMonth(tx) <= currentMonth());
+  const total = analysisTxs.reduce((sum, tx) => sum + absAmount(tx), 0);
+  const avgMonthly = analysisMonths.length ? total / analysisMonths.length : 0;
+  const overCount = analysisMonths.reduce((sum, month) => sum + budgetRows(month).filter((row) => row.over).length, 0);
   const outliers = transactionOutlierMap();
-  const outlierCount = txs.filter((tx) => outliers.get(tx.id)?.outlier).length;
+  const outlierCount = analysisTxs.filter((tx) => outliers.get(tx.id)?.outlier).length;
   const cpkValues = variableExpenseMasters().map((m) => {
-    const values = months.map((month) => state.transactions.filter((tx) => txMonth(tx) === month && tx.masterId === m.id && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
+    const values = analysisMonths.map((month) => state.transactions.filter((tx) => txMonth(tx) === month && tx.masterId === m.id && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
     return cpkOneSided(Math.abs(m.monthlyAmount), values);
   }).filter((value) => Number.isFinite(value));
   const avgCpk = cpkValues.length ? mean(cpkValues) : null;
   renderKpiCards(els.statsKpis, [
-    { label: "기간 총 유출", value: formatWon(total), tone: "bad", sub: `${months.length}개월` },
-    { label: "월평균 유출", value: formatWon(avgMonthly), sub: "지출·저축 포함" },
+    { label: "기간 총 유출", value: formatWon(total), tone: "bad", sub: `${months.length}개월 표시 · ${analysisMonths.length}개월 계산` },
+    { label: "월평균 유출", value: formatWon(avgMonthly), sub: "미래 월 제외 · 지출·저축 포함" },
     { label: "USL 초과", value: `${overCount}건`, tone: overCount ? "bad" : "good", sub: "Item × Month" },
     { label: "95% 이상 결제", value: `${outlierCount}건`, tone: outlierCount ? "warn" : "good", sub: "개인 결제 단위" },
     { label: "평균 Cpk", value: avgCpk === null ? "-" : avgCpk.toFixed(2), tone: avgCpk !== null && avgCpk < 1.33 ? "bad" : "good", sub: "유동 Item 단측 Cpk" },
@@ -1003,7 +1029,7 @@ function renderStatistics() {
 
   const criteriaOptions = [...els.statsItemCriteria.options].map((option) => option.value);
   if (!state.statsCriteriaTouched || !criteriaOptions.includes(els.statsItemCriteria.value)) {
-    const defaultCriteria = highestSpendCriteria(els.statsEndMonth.value, txs, criteriaOptions);
+    const defaultCriteria = highestSpendCriteria(statisticsFocusMonth(months), txs, criteriaOptions);
     if (defaultCriteria) els.statsItemCriteria.value = defaultCriteria;
   }
   populatePlaceItems();
@@ -1029,7 +1055,7 @@ function renderDailySpendRange(master, months) {
 
   const byMonthAndDate = new Map(months.map((month) => [month, new Map()]));
   state.transactions
-    .filter((tx) => tx.amount < 0 && months.includes(txMonth(tx)) && transactionMatchesMaster(tx, master))
+    .filter((tx) => tx.amount < 0 && txMonth(tx) <= currentMonth() && months.includes(txMonth(tx)) && transactionMatchesMaster(tx, master))
     .forEach((tx) => {
       const month = txMonth(tx);
       const daily = byMonthAndDate.get(month);
@@ -1133,15 +1159,27 @@ function renderSpc() {
   }
   els.spcItemSelect.value = master.id;
   const months = state.statsMonths;
-  const monthlyValues = months.map((month) => state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && txMonth(tx) === month && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
+  const monthlyValues = months.map((month) => month > currentMonth()
+    ? null
+    : state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && txMonth(tx) === month && tx.amount < 0).reduce((sum, tx) => sum + absAmount(tx), 0));
+  const analysisValues = monthlyValues.filter((value) => Number.isFinite(value));
   const usl = Math.abs(Number(master.monthlyAmount));
-  const breaches = monthlyValues.map((value) => value > usl);
-  const rises = monthlyValues.map((_, index) => index >= 5 && monthlyValues.slice(index - 5, index + 1).every((value, i, arr) => i === 0 || value > arr[i - 1]));
+  const breaches = monthlyValues.map((value) => Number.isFinite(value) && value > usl);
+  const rises = monthlyValues.map((value, index) => {
+    if (!Number.isFinite(value) || index < 5) return false;
+    const sequence = monthlyValues.slice(index - 5, index + 1);
+    return sequence.every((item) => Number.isFinite(item))
+      && sequence.every((item, sequenceIndex) => sequenceIndex === 0 || item > sequence[sequenceIndex - 1]);
+  });
   const pointColors = monthlyValues.map((_, i) => breaches[i] || rises[i] ? "#d64545" : "#20639b");
-  const itemTxValues = state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && tx.amount < 0).map(absAmount);
+  const itemTxValues = state.transactions.filter((tx) => transactionMatchesMaster(tx, master) && tx.amount < 0 && txMonth(tx) <= currentMonth()).map(absAmount);
   const upper95 = itemTxValues.length >= 5 ? mean(itemTxValues) + 1.96 * sampleStd(itemTxValues) : null;
-  const cpk = cpkOneSided(usl, monthlyValues);
-  const rolling = monthlyValues.map((_, index) => index < 2 ? null : cpkOneSided(usl, monthlyValues.slice(0, index + 1)));
+  const cpk = cpkOneSided(usl, analysisValues);
+  const rolling = monthlyValues.map((value, index) => {
+    if (!Number.isFinite(value)) return null;
+    const values = monthlyValues.slice(0, index + 1).filter((item) => Number.isFinite(item));
+    return values.length < 3 ? null : cpkOneSided(usl, values);
+  });
 
   chart("spc", "spc-chart", {
     type: "line",
@@ -1168,8 +1206,8 @@ function renderSpc() {
   els.spcSummary.innerHTML = `
     <div class="metric-row"><span>대상</span><strong>${escapeHtml(master.criteria)} · ${escapeHtml(master.item)}</strong></div>
     <div class="metric-row"><span>월 USL</span><strong>${formatWon(usl)}</strong></div>
-    <div class="metric-row"><span>월 평균</span><strong>${formatWon(mean(monthlyValues))}</strong></div>
-    <div class="metric-row"><span>월 표준편차</span><strong>${formatWon(sampleStd(monthlyValues))}</strong></div>
+    <div class="metric-row"><span>월 평균</span><strong>${formatWon(mean(analysisValues))}</strong></div>
+    <div class="metric-row"><span>월 표준편차</span><strong>${formatWon(sampleStd(analysisValues))}</strong></div>
     <div class="metric-row"><span>단측 Cpk</span><strong>${cpkText} · ${cpkStatus}</strong></div>
     <div class="metric-row"><span>개별 결제 95% 상한</span><strong>${upper95 === null ? "5건 이상 필요" : formatWon(upper95)}</strong></div>
     <div class="metric-row"><span>Spec 초과 월</span><strong>${breaches.filter(Boolean).length}개</strong></div>
@@ -1379,10 +1417,11 @@ function bindEvents() {
 }
 
 function initializeDefaults() {
+  const trendRange = defaultTrendRange();
   els.dashboardMonth.value = currentMonth();
   els.ledgerMonth.value = currentMonth();
-  els.statsEndMonth.value = currentMonth();
-  els.statsStartMonth.value = shiftMonth(currentMonth(), -11);
+  els.statsEndMonth.value = trendRange.end;
+  els.statsStartMonth.value = trendRange.start;
   els.budgetKpiMonth.value = currentMonth();
   resetTransactionForm();
   resetAssetForm();
