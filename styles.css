@@ -216,6 +216,9 @@ tr.archived td { color: #8d97a6; background: #f7f8fa; }
 .quarter-card-head span { color: var(--muted); font-size: 9px; }
 .quarter-remaining { margin: 9px 0 7px; color: var(--success); font-size: 20px; font-weight: 850; letter-spacing: -.03em; }
 .quarter-remaining.negative { color: var(--danger); }
+.quarter-adjustment { display: inline-flex; align-items: center; min-height: 20px; margin-bottom: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(87,117,144,.1); color: var(--muted); font-size: 9px; font-weight: 750; }
+.quarter-adjustment.positive { background: rgba(47,143,107,.1); color: var(--success); }
+.quarter-adjustment.negative { background: rgba(214,69,69,.1); color: var(--danger); }
 .quarter-meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 9px; }
 .compact-chart { min-height: 250px; }
 tr.budget-over td { background: var(--danger-soft); }

@@ -244,11 +244,42 @@ function quarterBudgetRows(month, monthlyBudget) {
     { key: "Q4", label: `22~${totalDays}일`, start: 22, end: totalDays },
   ];
   const txs = monthlyTransactions(month).filter((tx) => Number(tx.amount) < 0);
+  const today = todayString();
+  const selectedMonthIsPast = month < today.slice(0, 7);
+  const selectedMonthIsCurrent = month === today.slice(0, 7);
+  const todayDay = selectedMonthIsCurrent ? Number(today.slice(8, 10)) : 0;
+  let carryIn = 0;
+
   return definitions.map((quarter) => {
     const dayCount = Math.max(0, quarter.end - quarter.start + 1);
-    const budget = totalDays ? monthlyBudget * dayCount / totalDays : monthlyBudget / 4;
+    const baseBudget = totalDays ? monthlyBudget * dayCount / totalDays : monthlyBudget / 4;
+    const adjustedBudget = baseBudget + carryIn;
     const used = txs.filter((tx) => txQuarter(tx) === quarter.key).reduce((sum, tx) => sum + absAmount(tx), 0);
-    return { ...quarter, dayCount, budget, used, remaining: budget - used, utilization: budget ? used / budget * 100 : 0, over: used > budget };
+    const remaining = adjustedBudget - used;
+    const isClosed = selectedMonthIsPast || (selectedMonthIsCurrent && todayDay > quarter.end);
+    const isCurrent = selectedMonthIsCurrent && todayDay >= quarter.start && todayDay <= quarter.end;
+
+    // 완료된 Quarter는 잔액/초과액 전부 이월합니다.
+    // 진행 중이거나 아직 시작하지 않은 Quarter는 확정된 초과액만 다음 Quarter에서 즉시 차감합니다.
+    const carryOut = isClosed ? remaining : Math.min(remaining, 0);
+    const utilization = adjustedBudget > 0 ? used / adjustedBudget * 100 : (used > 0 ? Infinity : 0);
+    const row = {
+      ...quarter,
+      dayCount,
+      baseBudget,
+      carryIn,
+      adjustedBudget,
+      budget: adjustedBudget,
+      used,
+      remaining,
+      carryOut,
+      utilization,
+      over: remaining < 0,
+      isClosed,
+      isCurrent,
+    };
+    carryIn = carryOut;
+    return row;
   });
 }
 
@@ -756,26 +787,33 @@ function renderDashboard() {
   const quarterRows = quarterBudgetRows(month, plannedBudget);
   const today = todayString();
   const currentQuarterKey = today.slice(0, 7) === month ? txQuarter({ date: today }) : null;
-  els.dashboardQuarterCards.innerHTML = quarterRows.map((row) => `
+  els.dashboardQuarterCards.innerHTML = quarterRows.map((row) => {
+    const carryLabel = row.carryIn > 0 ? `이월 +${formatWon(row.carryIn)}` : row.carryIn < 0 ? `초과 차감 ${formatWon(row.carryIn)}` : "이월 없음";
+    const statusLabel = row.isClosed ? "마감" : row.isCurrent ? "진행 중" : "예정";
+    return `
     <div class="quarter-card ${row.over ? "over" : ""} ${row.key === currentQuarterKey ? "current" : ""}">
-      <div class="quarter-card-head"><strong>${row.key}</strong><span>${row.label} · ${row.dayCount}일</span></div>
+      <div class="quarter-card-head"><strong>${row.key}</strong><span>${row.label} · ${row.dayCount}일 · ${statusLabel}</span></div>
       <div class="quarter-remaining ${row.remaining < 0 ? "negative" : ""}">${formatWon(row.remaining)}</div>
-      <div class="quarter-meta"><span>배정 ${formatWon(row.budget)}</span><span>사용 ${formatWon(row.used)}</span></div>
-      <div class="progress ${row.over ? "over" : ""}"><span style="width:${Math.min(row.utilization, 100)}%"></span></div>
-    </div>`).join("");
+      <div class="quarter-adjustment ${row.carryIn < 0 ? "negative" : row.carryIn > 0 ? "positive" : ""}">${carryLabel}</div>
+      <div class="quarter-meta"><span>기본 ${formatWon(row.baseBudget)}</span><span>조정 ${formatWon(row.adjustedBudget)}</span></div>
+      <div class="quarter-meta"><span>사용 ${formatWon(row.used)}</span><span>${row.remaining < 0 ? "초과" : "잔액"} ${formatWon(Math.abs(row.remaining))}</span></div>
+      <div class="progress ${row.over ? "over" : ""}"><span style="width:${Math.min(Number.isFinite(row.utilization) ? row.utilization : 100, 100)}%"></span></div>
+    </div>`;
+  }).join("");
   const currentQuarter = quarterRows.find((row) => row.key === currentQuarterKey);
   els.dashboardQuarterSummary.textContent = currentQuarter
-    ? `${month} 현재 ${currentQuarter.key} · ${currentQuarter.label}에 ${formatWon(currentQuarter.remaining)} 더 사용 가능 · 월 예산은 실제 일수 비율로 배분`
-    : `${month} Q1~Q4별 배정액·사용액·남은 금액 · 월 예산은 실제 일수 비율로 배분`;
+    ? `${month} 현재 ${currentQuarter.key} 사용 가능 ${formatWon(currentQuarter.remaining)} · 이전 Quarter 잔액은 이월, 초과액은 다음 Quarter에서 차감`
+    : `${month} Quarter 마감 순서대로 잔액은 다음 Quarter에 이월되고, 초과액은 다음 Quarter 사용 가능 금액에서 차감됩니다.`;
 
   chart("dashboardQuarterBalance", "dashboard-quarter-balance-chart", {
     type: "bar",
     data: {
       labels: quarterRows.map((row) => `${row.key} ${row.label}`),
       datasets: [
-        { label: "배정 예산", data: quarterRows.map((row) => row.budget), backgroundColor: "rgba(32,99,155,.35)", borderRadius: 5 },
+        { label: "기본 배정", data: quarterRows.map((row) => row.baseBudget), backgroundColor: "rgba(32,99,155,.22)", borderRadius: 5 },
+        { label: "이월 반영 예산", data: quarterRows.map((row) => row.adjustedBudget), backgroundColor: "rgba(32,99,155,.62)", borderRadius: 5 },
         { label: "실사용", data: quarterRows.map((row) => row.used), backgroundColor: "rgba(214,69,69,.7)", borderRadius: 5 },
-        { label: "남은 금액", data: quarterRows.map((row) => row.remaining), backgroundColor: quarterRows.map((row) => row.remaining >= 0 ? "rgba(47,143,107,.72)" : "rgba(214,69,69,.9)"), borderRadius: 5 },
+        { label: "Quarter 종료 잔액", data: quarterRows.map((row) => row.remaining), backgroundColor: quarterRows.map((row) => row.remaining >= 0 ? "rgba(47,143,107,.72)" : "rgba(214,69,69,.9)"), borderRadius: 5 },
       ],
     },
     options: baseChartOptions(),
