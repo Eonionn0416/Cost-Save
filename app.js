@@ -56,6 +56,14 @@ const PALETTE = [
   "#2f8f6b", "#c44569", "#577590", "#f9844a", "#43aa8b",
 ];
 
+// Quarter 사용 가능 금액은 실제 생활 중 조절 가능한 예산만 대상으로 합니다.
+// 월세/공과금 등 집 관련 고정비와 저축은 월 Criteria에는 남기되 Quarter 계산에서는 제외합니다.
+const QUARTER_EXCLUDED_CRITERIA = new Set(["저축", "집"]);
+
+function isQuarterBudgetCriteria(criteria) {
+  return !QUARTER_EXCLUDED_CRITERIA.has(String(criteria || "").trim());
+}
+
 const state = {
   user: null,
   masters: [],
@@ -249,7 +257,13 @@ function criteriaBudgetRows(month) {
   }).sort((a, b) => b.budget - a.budget || b.used - a.used || a.criteria.localeCompare(b.criteria, "ko"));
 }
 
-function quarterBudgetRows(month, monthlyBudget) {
+function quarterBudgetTotal(month) {
+  return criteriaBudgetRows(month)
+    .filter((row) => isQuarterBudgetCriteria(row.criteria))
+    .reduce((sum, row) => sum + row.budget, 0);
+}
+
+function quarterBudgetRows(month) {
   const totalDays = daysInMonth(month);
   const definitions = [
     { key: "Q1", label: "1~7일", start: 1, end: Math.min(7, totalDays) },
@@ -257,7 +271,10 @@ function quarterBudgetRows(month, monthlyBudget) {
     { key: "Q3", label: "15~21일", start: 15, end: Math.min(21, totalDays) },
     { key: "Q4", label: `22~${totalDays}일`, start: 22, end: totalDays },
   ];
-  const txs = monthlyTransactions(month).filter((tx) => Number(tx.amount) < 0);
+  const monthlyQuarterBudget = quarterBudgetTotal(month);
+  const txs = monthlyTransactions(month).filter((tx) =>
+    Number(tx.amount) < 0 && isQuarterBudgetCriteria(tx.criteriaSnapshot)
+  );
   const today = todayString();
   const selectedMonthIsPast = month < today.slice(0, 7);
   const selectedMonthIsCurrent = month === today.slice(0, 7);
@@ -266,7 +283,8 @@ function quarterBudgetRows(month, monthlyBudget) {
 
   return definitions.map((quarter) => {
     const dayCount = Math.max(0, quarter.end - quarter.start + 1);
-    const baseBudget = totalDays ? monthlyBudget * dayCount / totalDays : monthlyBudget / 4;
+    // Quarter별 기본 금액은 일수와 무관하게 (저축/집 제외 Criteria TTL) ÷ 4로 동일 배분합니다.
+    const baseBudget = monthlyQuarterBudget / 4;
     const adjustedBudget = baseBudget + carryIn;
     const used = txs.filter((tx) => txQuarter(tx) === quarter.key).reduce((sum, tx) => sum + absAmount(tx), 0);
     const remaining = adjustedBudget - used;
@@ -275,11 +293,13 @@ function quarterBudgetRows(month, monthlyBudget) {
 
     // 완료된 Quarter는 잔액/초과액 전부 이월합니다.
     // 진행 중이거나 아직 시작하지 않은 Quarter는 확정된 초과액만 다음 Quarter에서 즉시 차감합니다.
+    // 저축/집 지출은 baseBudget과 used 양쪽에서 모두 제외되어 이월 금액에 영향을 주지 않습니다.
     const carryOut = isClosed ? remaining : Math.min(remaining, 0);
     const utilization = adjustedBudget > 0 ? used / adjustedBudget * 100 : (used > 0 ? Infinity : 0);
     const row = {
       ...quarter,
       dayCount,
+      monthlyQuarterBudget,
       baseBudget,
       carryIn,
       adjustedBudget,
@@ -798,7 +818,7 @@ function renderDashboard() {
     </tr>`).join("") : `<tr><td colspan="6"><div class="empty-state">기준표에 지출·저축 Criteria를 추가해 주세요.</div></td></tr>`;
   els.dashboardCriteriaTfoot.innerHTML = criteriaRows.length ? `<tr><th>TTL</th><th class="number">${formatWon(plannedBudget)}</th><th class="number">${formatWon(totalOutflow)}</th><th class="number">${formatWon(budgetRemaining)}</th><th>${formatPercent(plannedBudget ? totalOutflow / plannedBudget * 100 : 0)}</th><th></th></tr>` : "";
 
-  const quarterRows = quarterBudgetRows(month, plannedBudget);
+  const quarterRows = quarterBudgetRows(month);
   const today = todayString();
   const currentQuarterKey = today.slice(0, 7) === month ? txQuarter({ date: today }) : null;
   els.dashboardQuarterCards.innerHTML = quarterRows.map((row) => {
@@ -815,9 +835,10 @@ function renderDashboard() {
     </div>`;
   }).join("");
   const currentQuarter = quarterRows.find((row) => row.key === currentQuarterKey);
+  const quarterBudgetTtl = quarterRows[0]?.monthlyQuarterBudget || 0;
   els.dashboardQuarterSummary.textContent = currentQuarter
-    ? `${month} 현재 ${currentQuarter.key} 사용 가능 ${formatWon(currentQuarter.remaining)} · 이전 Quarter 잔액은 이월, 초과액은 다음 Quarter에서 차감`
-    : `${month} Quarter 마감 순서대로 잔액은 다음 Quarter에 이월되고, 초과액은 다음 Quarter 사용 가능 금액에서 차감됩니다.`;
+    ? `${month} Quarter 대상 TTL ${formatWon(quarterBudgetTtl)} (저축·집 제외) ÷ 4 = 기본 ${formatWon(currentQuarter.baseBudget)} · 현재 ${currentQuarter.key} 사용 가능 ${formatWon(currentQuarter.remaining)}`
+    : `${month} Quarter 대상 TTL ${formatWon(quarterBudgetTtl)} (저축·집 제외) ÷ 4로 동일 배분 · 마감 잔액/초과액은 다음 Quarter에 이월됩니다.`;
 
   chart("dashboardQuarterBalance", "dashboard-quarter-balance-chart", {
     type: "bar",
