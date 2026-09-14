@@ -102,6 +102,7 @@ const els = {
   transactionForm: $("transaction-form"), transactionId: $("transaction-id"), transactionDate: $("transaction-date"),
   transactionCriteria: $("transaction-criteria"), transactionItem: $("transaction-item"), transactionAmount: $("transaction-amount"),
   transactionBank: $("transaction-bank"), transactionPlace: $("transaction-place"), transactionMemo: $("transaction-memo"),
+  transactionPlaceSuggestions: $("transaction-place-suggestions"), transactionMemoSuggestions: $("transaction-memo-suggestions"),
   transactionHint: $("transaction-hint"), transactionCancelBtn: $("transaction-cancel-btn"),
   transactionFormTitle: $("transaction-form-title"), ledgerMonth: $("ledger-month"), ledgerSearch: $("ledger-search"),
   ledgerTbody: $("ledger-tbody"), exportCsvBtn: $("export-csv-btn"),
@@ -658,6 +659,69 @@ function populateBankOptions(selected = null) {
   }
 }
 
+function distinctFieldValues(field) {
+  const map = new Map();
+  state.transactions.forEach((tx) => {
+    const value = String(tx[field] || "").trim();
+    if (!value) return;
+    const entry = map.get(value) || { value, count: 0, lastDate: "" };
+    entry.count += 1;
+    if (tx.date > entry.lastDate) entry.lastDate = tx.date;
+    map.set(value, entry);
+  });
+  return [...map.values()].sort((a, b) => b.count - a.count || b.lastDate.localeCompare(a.lastDate) || a.value.localeCompare(b.value, "ko"));
+}
+
+// 목적/메모 입력칸을 "검색 가능한 선택 + 새 값 직접 입력"이 모두 되는 콤보 입력으로 만듭니다.
+// 목록에 없는 값을 그대로 입력해 저장하면, 다음부터는 그 값이 가계부 기록에서 자동으로 추출되어 목록에 나타납니다.
+function setupComboField(inputEl, listEl, getOptions) {
+  if (!inputEl || !listEl) return;
+  let activeIndex = -1;
+
+  function render(query) {
+    const q = query.trim().toLowerCase();
+    const options = getOptions().filter((opt) => !q || opt.value.toLowerCase().includes(q)).slice(0, 20);
+    activeIndex = -1;
+    if (!options.length) {
+      listEl.innerHTML = `<li class="combo-empty">${q ? "일치하는 기록이 없습니다. 입력한 값이 새 항목으로 저장됩니다." : "저장된 기록이 없습니다. 입력하면 새 항목으로 저장됩니다."}</li>`;
+      listEl.hidden = false;
+      return;
+    }
+    listEl.innerHTML = options.map((opt) => `<li data-value="${escapeHtml(opt.value)}"><span>${escapeHtml(opt.value)}</span><span class="combo-count">${opt.count}회</span></li>`).join("");
+    listEl.hidden = false;
+  }
+
+  function setActive(items) {
+    items.forEach((li, idx) => li.classList.toggle("active", idx === activeIndex));
+    items[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  function selectValue(value) {
+    inputEl.value = value;
+    listEl.hidden = true;
+    inputEl.focus();
+  }
+
+  inputEl.addEventListener("focus", () => render(inputEl.value));
+  inputEl.addEventListener("input", () => render(inputEl.value));
+  inputEl.addEventListener("blur", () => setTimeout(() => { listEl.hidden = true; }, 150));
+  inputEl.addEventListener("keydown", (event) => {
+    if (listEl.hidden) return;
+    const items = [...listEl.querySelectorAll("li[data-value]")];
+    if (!items.length) return;
+    if (event.key === "ArrowDown") { event.preventDefault(); activeIndex = Math.min(activeIndex + 1, items.length - 1); setActive(items); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); setActive(items); }
+    else if (event.key === "Enter" && activeIndex >= 0) { event.preventDefault(); selectValue(items[activeIndex].dataset.value); }
+    else if (event.key === "Escape") { listEl.hidden = true; }
+  });
+  listEl.addEventListener("mousedown", (event) => {
+    const li = event.target.closest("li[data-value]");
+    if (!li) return;
+    event.preventDefault();
+    selectValue(li.dataset.value);
+  });
+}
+
 function updateTransactionHint() {
   const master = masterById(els.transactionItem.value);
   if (!master) {
@@ -792,7 +856,7 @@ async function removeTransaction(id) {
 function exportLedgerCsv() {
   const month = els.ledgerMonth.value;
   const rows = state.transactions.filter((tx) => !month || txMonth(tx) === month);
-  const header = ["날짜", "Criteria", "Item", "사용처", "고정/유동", "Bank", "금액", "메모"];
+  const header = ["날짜", "Criteria", "Item", "사용처", "고정/유동", "Bank", "금액", "구매처"];
   const csvRows = [header, ...rows.map((tx) => [tx.date, tx.criteriaSnapshot, tx.itemSnapshot, tx.place || "", tx.flowTypeSnapshot || "", tx.bankSnapshot || "", tx.amount, tx.memo || ""])];
   const csv = csvRows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
   const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
@@ -1632,6 +1696,8 @@ function bindEvents() {
   els.transactionItem.addEventListener("change", () => { populateBankOptions(masterById(els.transactionItem.value)?.bank); updateTransactionHint(); });
   els.transactionForm.addEventListener("submit", saveTransaction);
   els.transactionCancelBtn.addEventListener("click", resetTransactionForm);
+  setupComboField(els.transactionPlace, els.transactionPlaceSuggestions, () => distinctFieldValues("place"));
+  setupComboField(els.transactionMemo, els.transactionMemoSuggestions, () => distinctFieldValues("memo"));
   els.ledgerMonth.addEventListener("change", renderLedger);
   els.ledgerSearch.addEventListener("input", renderLedger);
   els.exportCsvBtn.addEventListener("click", exportLedgerCsv);

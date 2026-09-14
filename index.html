@@ -196,11 +196,17 @@
               </label>
               <label class="full-span">
                 목적
-                <input id="transaction-place" type="text" maxlength="80" placeholder="예: 식비, 카페, 속소" />
+                <div class="combo-field">
+                  <input id="transaction-place" type="text" maxlength="80" placeholder="예: Coffee, 숙소 (검색 또는 새로 입력)" autocomplete="off" />
+                  <ul id="transaction-place-suggestions" class="combo-suggestions" hidden></ul>
+                </div>
               </label>
               <label class="full-span">
-                메모
-                <textarea id="transaction-memo" rows="2" maxlength="200" placeholder="선택 사항"></textarea>
+                구매처
+                <div class="combo-field">
+                  <textarea id="transaction-memo" rows="2" maxlength="200" placeholder="예: GS25, NOL (검색 또는 새로 입력)"></textarea>
+                  <ul id="transaction-memo-suggestions" class="combo-suggestions" hidden></ul>
+                </div>
               </label>
               <div id="transaction-hint" class="inline-hint full-span"></div>
               <div class="button-row full-span">
@@ -218,7 +224,7 @@
               </div>
               <div class="filter-row">
                 <input id="ledger-month" type="month" aria-label="가계부 월 필터" />
-                <input id="ledger-search" type="search" placeholder="Criteria, Item, 목적 검색" />
+                <input id="ledger-search" type="search" placeholder="Criteria, Item, 목적, 구매처 검색" />
                 <button id="export-csv-btn" class="btn secondary small" type="button">CSV</button>
               </div>
             </div>
@@ -226,7 +232,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th>날짜</th><th>Criteria</th><th>Item</th><th>목적</th><th>메모</th><th>고정/유동</th><th>Bank</th><th class="number">금액</th><th>상태</th><th></th>
+                    <th>날짜</th><th>Criteria</th><th>Item</th><th>목적</th><th>구매처</th><th>고정/유동</th><th>Bank</th><th class="number">금액</th><th>상태</th><th></th>
                   </tr>
                 </thead>
                 <tbody id="ledger-tbody"></tbody>

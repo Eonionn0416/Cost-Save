@@ -234,6 +234,21 @@ tr.criteria-detail-row td { padding: 6px 10px 14px 30px; border-bottom: 1px soli
 .nested-table .progress { min-width: 90px; }
 .empty-state.small { padding: 10px; font-size: 11px; }
 
+.combo-field { position: relative; }
+.combo-suggestions {
+  display: block; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+  margin: 0; padding: 5px; list-style: none; max-height: 190px; overflow: auto;
+  background: #fff; border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 12px 26px rgba(31,45,61,.14);
+}
+.combo-suggestions[hidden] { display: none; }
+.combo-suggestions li {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; color: #33404f; cursor: pointer;
+}
+.combo-suggestions li:hover, .combo-suggestions li.active { background: var(--panel-soft); }
+.combo-suggestions li .combo-count { color: var(--muted); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.combo-suggestions li .combo-empty { color: var(--muted); font-weight: 500; cursor: default; }
+
 .spc-suggested-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .delta-tag { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 999px; font-size: 9px; font-weight: 750; white-space: nowrap; }
 .delta-tag.delta-down { background: var(--success-soft); color: var(--success); }

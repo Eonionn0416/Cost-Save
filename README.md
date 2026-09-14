@@ -4,7 +4,8 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
 
 ## 구현 기능
 
-- 가계부 작성: 날짜, Criteria, Item, 실제 금액, 실제 Bank, 사용처, 메모
+- 가계부 작성: 날짜, Criteria, Item, 실제 금액, 실제 Bank, 목적, 구매처
+- 목적/구매처는 과거에 입력한 값 중 검색해서 선택하거나, 목록에 없는 값을 새로 입력해 바로 저장 가능
 - Item 기준 자동 수입/지출 부호 적용
 - 기준표 수정 및 보관: Criteria, Item, 월 Amount, 고정/유동, 기본 Bank
 - 과거 기록 보존: 가계부 저장 시 기준 정보를 스냅샷으로 함께 저장하므로 기준표 수정·보관 후에도 과거 표시가 유지됨
