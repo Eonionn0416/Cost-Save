@@ -233,6 +233,12 @@ tr.criteria-detail-row td { padding: 6px 10px 14px 30px; border-bottom: 1px soli
 .nested-table th, .nested-table td { padding: 7px 9px; }
 .nested-table .progress { min-width: 90px; }
 .empty-state.small { padding: 10px; font-size: 11px; }
+
+.spc-suggested-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.delta-tag { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 999px; font-size: 9px; font-weight: 750; white-space: nowrap; }
+.delta-tag.delta-down { background: var(--success-soft); color: var(--success); }
+.delta-tag.delta-up { background: #fff5df; color: #9a6800; }
+.delta-tag.delta-flat { background: #eef1f5; color: #667080; }
 td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
 
 .modal { border: 0; padding: 0; border-radius: 18px; width: min(560px, calc(100% - 28px)); box-shadow: 0 30px 80px rgba(20,36,51,.3); }

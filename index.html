@@ -255,12 +255,24 @@
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>Criteria</th><th>Item</th><th class="number">Amount (Monthly)</th><th>고정/유동</th><th>기본 Bank</th><th>상태</th><th></th></tr>
+                <tr><th>Criteria</th><th>Item</th><th class="number">Amount (Monthly)</th><th class="number">다음달 제안 (SPC)</th><th>고정/유동</th><th>기본 Bank</th><th>상태</th><th></th></tr>
               </thead>
               <tbody id="master-tbody"></tbody>
-              <tfoot><tr><th>TTL</th><td></td><th id="master-total" class="number"></th><td colspan="4"></td></tr></tfoot>
+              <tfoot><tr><th>TTL</th><td></td><th id="master-total" class="number"></th><th id="master-suggested-total" class="number"></th><td colspan="4"></td></tr></tfoot>
             </table>
           </div>
+        </article>
+
+        <article class="panel spaced">
+          <div class="panel-heading wrap">
+            <div>
+              <h3>다음달 예산 SPC 최적화 제안</h3>
+              <p id="master-spc-summary">최근 유동 지출 실사용 추이를 바탕으로, 목표보다 덜 쓴 항목은 더 낮추고 더 쓴 항목은 소폭만 늘려 전체 유동 지출이 수입 - 고정비 한도를 넘지 않도록 제안합니다.</p>
+            </div>
+            <button id="apply-spc-btn" class="btn primary small" type="button">유동 항목에 제안 반영</button>
+          </div>
+          <div id="master-spc-kpis" class="kpi-grid mini"></div>
+          <div class="chart-wrap"><canvas id="master-spc-chart"></canvas></div>
         </article>
       </section>
 

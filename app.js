@@ -64,6 +64,17 @@ function isQuarterBudgetCriteria(criteria) {
   return !QUARTER_EXCLUDED_CRITERIA.has(String(criteria || "").trim());
 }
 
+// 다음달 예산 SPC 최적화 제안 튜닝 값
+// - 목표보다 덜 쓴 항목: 평균 + 0.5*표준편차 수준까지만 여유를 두고 낮춘다.
+// - 목표보다 더 쓴 항목: 평균과 현재 Amount 차이의 35%만 반영해 소폭만 늘린다 (과소비를 그대로 보상하지 않음).
+// - 한 번에 바뀌는 폭은 위/아래 모두 상한을 둬서 여러 달에 걸쳐 점진적으로 좁혀지도록 한다.
+const SPC_WINDOW_MONTHS = 6;
+const SPC_UNDER_BUFFER_SIGMA = 0.5;
+const SPC_OVER_GAP_SHARE = 0.35;
+const SPC_MAX_STEP_DOWN_RATIO = 0.15;
+const SPC_MAX_STEP_UP_RATIO = 0.08;
+const SPC_MIN_STEP = 5000;
+
 const state = {
   user: null,
   masters: [],
@@ -96,6 +107,8 @@ const els = {
   ledgerTbody: $("ledger-tbody"), exportCsvBtn: $("export-csv-btn"),
   showArchived: $("show-archived"), seedMasterBtn: $("seed-master-btn"), addMasterBtn: $("add-master-btn"),
   masterTbody: $("master-tbody"), masterSummary: $("master-summary"), masterTotal: $("master-total"),
+  masterSuggestedTotal: $("master-suggested-total"), applySpcBtn: $("apply-spc-btn"),
+  masterSpcSummary: $("master-spc-summary"), masterSpcKpis: $("master-spc-kpis"),
   masterDialog: $("master-dialog"), masterForm: $("master-form"), masterDialogTitle: $("master-dialog-title"),
   masterId: $("master-id"), masterCriteria: $("master-criteria"), masterItem: $("master-item"),
   masterAmount: $("master-amount"), masterFlowType: $("master-flow-type"), masterBank: $("master-bank"),
@@ -344,6 +357,91 @@ function transactionMatchesMaster(tx, master) {
   if (!master) return false;
   return tx.masterId === master.id
     || (!tx.masterId && tx.criteriaSnapshot === master.criteria && tx.itemSnapshot === master.item);
+}
+
+function spcTrailingMonths(count = SPC_WINDOW_MONTHS) {
+  const lastCompleted = shiftMonth(currentMonth(), -1);
+  const start = shiftMonth(lastCompleted, -(count - 1));
+  return monthRange(start, lastCompleted);
+}
+
+function roundToStep(value, step = SPC_MIN_STEP) {
+  return Math.max(0, Math.round(value / step) * step);
+}
+
+function masterHasHistory(master) {
+  return state.transactions.some((tx) => transactionMatchesMaster(tx, master));
+}
+
+// Criteria/Item 기준표의 다음달 제안 Amount를 계산합니다.
+// - 유동 지출 항목만 대상으로 하며, 고정비·저축·수입은 조정하지 않습니다.
+// - 목표(현재 Amount)보다 덜 쓴 항목은 평균+0.5*표준편차 수준까지 낮추고,
+//   더 쓴 항목은 평균과의 차이 중 35%만 반영해 소폭만 늘립니다.
+// - 한 달에 바뀌는 폭은 위/아래 각각 상한을 둬서 여러 달에 걸쳐 점진적으로 좁혀지게 합니다.
+// - 마지막으로 전체 유동 지출 제안 합계가 (수입 - 고정비) 한도를 넘으면 비례적으로 다시 줄입니다.
+function computeSpcPlan() {
+  const months = spcTrailingMonths();
+  const variableMasters = variableExpenseMasters();
+  const fixedTotal = expenseMasters().filter((m) => m.flowType !== "유동")
+    .reduce((sum, m) => sum + Math.abs(Number(m.monthlyAmount || 0)), 0);
+  const income = activeMasters().filter((m) => Number(m.monthlyAmount) > 0)
+    .reduce((sum, m) => sum + Number(m.monthlyAmount), 0);
+  const availablePool = Math.max(0, income - fixedTotal);
+
+  const monthlyVariableTotals = months.map(() => 0);
+  const raw = variableMasters.map((master) => {
+    const current = Math.abs(Number(master.monthlyAmount || 0));
+    if (!masterHasHistory(master)) return { master, current, target: current, avg: null, std: null, basis: "no-data" };
+
+    const values = months.map((month, idx) => {
+      const value = state.transactions
+        .filter((tx) => transactionMatchesMaster(tx, master) && txMonth(tx) === month && Number(tx.amount) < 0)
+        .reduce((sum, tx) => sum + absAmount(tx), 0);
+      monthlyVariableTotals[idx] += value;
+      return value;
+    });
+    const avg = mean(values);
+    const std = sampleStd(values);
+
+    let idealTarget;
+    let basis;
+    if (avg <= current) {
+      idealTarget = avg + SPC_UNDER_BUFFER_SIGMA * std;
+      basis = "under";
+    } else {
+      idealTarget = current + SPC_OVER_GAP_SHARE * (avg - current);
+      basis = "over";
+    }
+
+    const maxDown = current * SPC_MAX_STEP_DOWN_RATIO;
+    const maxUp = current * SPC_MAX_STEP_UP_RATIO;
+    const delta = Math.min(Math.max(idealTarget - current, -maxDown), maxUp);
+    const target = roundToStep(current + delta);
+    return { master, current, target, avg, std, basis };
+  });
+
+  const rawTotal = raw.reduce((sum, row) => sum + row.target, 0);
+  const scale = rawTotal > availablePool && rawTotal > 0 ? availablePool / rawTotal : 1;
+
+  const rows = raw.map((row) => {
+    if (scale >= 1 || row.basis === "no-data") return row;
+    const floor = row.avg !== null ? roundToStep(row.avg * 0.85) : roundToStep(row.current * (1 - SPC_MAX_STEP_DOWN_RATIO));
+    const target = Math.max(floor, roundToStep(row.target * scale));
+    return { ...row, target };
+  });
+
+  const currentVariableTotal = variableMasters.reduce((sum, m) => sum + Math.abs(Number(m.monthlyAmount || 0)), 0);
+  const suggestedVariableTotal = rows.reduce((sum, row) => sum + row.target, 0);
+  const currentTtl = fixedTotal + currentVariableTotal;
+  const suggestedTtl = fixedTotal + suggestedVariableTotal;
+
+  return {
+    months, income, fixedTotal, availablePool,
+    currentVariableTotal, suggestedVariableTotal, currentTtl, suggestedTtl,
+    monthlyVariableTotals,
+    scaled: scale < 1,
+    rows,
+  };
 }
 
 function highestSpendCriteria(month, fallbackTransactions = [], allowedCriteria = []) {
@@ -719,15 +817,100 @@ function renderMasterTable() {
     { label: "월 기준 잔액", value: formatWon(total, true), tone: total >= 0 ? "good" : "bad", sub: "TTL" },
   ]);
   els.masterTotal.textContent = formatWon(total, true);
+
+  const spcPlan = computeSpcPlan();
+  const suggestionByMasterId = new Map(spcPlan.rows.map((row) => [row.master.id, row]));
+  els.masterSuggestedTotal.textContent = formatWon(spcPlan.income - spcPlan.suggestedTtl, true);
+
   els.masterTbody.innerHTML = rows.length ? rows.map((m) => `
     <tr class="${m.active === false ? "archived" : ""}">
       <td>${escapeHtml(m.criteria)}</td><td>${escapeHtml(m.item)}</td>
       <td class="number ${m.monthlyAmount >= 0 ? "amount-income" : "amount-expense"}">${formatWon(m.monthlyAmount, true)}</td>
+      ${suggestedAmountCellHtml(m, suggestionByMasterId)}
       <td><span class="badge ${m.flowType === "유동" ? "variable" : "fixed"}">${escapeHtml(m.flowType)}</span></td>
       <td>${escapeHtml(m.bank)}</td>
       <td><span class="badge ${m.active === false ? "neutral" : "ok"}">${m.active === false ? "보관" : "사용 중"}</span></td>
       <td><div class="row-actions"><button class="table-btn" data-action="edit-master" data-id="${m.id}">수정</button><button class="table-btn ${m.active === false ? "" : "danger"}" data-action="toggle-master" data-id="${m.id}">${m.active === false ? "복원" : "보관"}</button></div></td>
-    </tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">기준 항목이 없습니다. 기본표를 추가해 주세요.</div></td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">기준 항목이 없습니다. 기본표를 추가해 주세요.</div></td></tr>`;
+
+  renderMasterSpcPanel(spcPlan);
+}
+
+function suggestedAmountCellHtml(m, suggestionByMasterId) {
+  if (m.active === false) return `<td class="number muted">–</td>`;
+  if (Number(m.monthlyAmount) >= 0) return `<td class="number muted">수입 항목</td>`;
+  const row = suggestionByMasterId.get(m.id);
+  if (!row) return `<td class="number muted">고정 유지</td>`;
+  if (row.basis === "no-data") return `<td class="number muted">데이터 부족</td>`;
+
+  const diff = row.target - row.current;
+  const cls = diff < -SPC_MIN_STEP / 2 ? "delta-down" : diff > SPC_MIN_STEP / 2 ? "delta-up" : "delta-flat";
+  const label = diff < -SPC_MIN_STEP / 2 ? "절감" : diff > SPC_MIN_STEP / 2 ? "소폭 확대" : "유지";
+  return `<td class="number">
+      <div class="spc-suggested-cell">
+        <strong>${formatWon(-row.target)}</strong>
+        <small class="delta-tag ${cls}">${label} ${formatWon(diff, true)}</small>
+      </div>
+    </td>`;
+}
+
+function renderMasterSpcPanel(plan) {
+  const netNow = plan.income - plan.currentTtl;
+  const netAfter = plan.income - plan.suggestedTtl;
+  const avgVariable = plan.monthlyVariableTotals.length ? mean(plan.monthlyVariableTotals) : 0;
+
+  renderKpiCards(els.masterSpcKpis, [
+    { label: "유동 지출 현재 합계", value: formatWon(plan.currentVariableTotal), sub: `Item ${variableExpenseMasters().length}개` },
+    { label: "최근 평균 유동 지출", value: formatWon(avgVariable), sub: plan.months.length ? `${plan.months[0]} ~ ${plan.months.at(-1)}` : "데이터 부족" },
+    {
+      label: "다음달 제안 합계", value: formatWon(plan.suggestedVariableTotal),
+      tone: plan.suggestedVariableTotal < plan.currentVariableTotal ? "good" : plan.suggestedVariableTotal > plan.currentVariableTotal ? "warn" : "",
+      sub: plan.scaled ? "가용 한도에 맞춰 비례 조정됨" : "Item별 SPC 제안 합",
+    },
+    {
+      label: "가용 한도 (수입-고정비)", value: formatWon(plan.availablePool),
+      tone: plan.suggestedVariableTotal <= plan.availablePool ? "good" : "bad",
+      sub: `수입 ${formatWon(plan.income)} · 고정비 ${formatWon(plan.fixedTotal)}`,
+    },
+  ]);
+
+  els.masterSpcSummary.textContent = `현재 TTL 잔액 ${formatWon(netNow, true)} → 제안 적용 시 ${formatWon(netAfter, true)}`
+    + (plan.suggestedTtl <= plan.income ? " · 수입 범위 안으로 맞춰집니다." : " · 아직 수입을 초과합니다. 고정비 조정도 함께 검토해 주세요.");
+
+  const labels = [...plan.months, "다음달(제안)"];
+  const actualData = [...plan.monthlyVariableTotals, null];
+  const suggestedPoint = plan.months.map(() => null).concat([plan.suggestedVariableTotal]);
+  const currentBudgetLine = labels.map(() => plan.currentVariableTotal);
+  const availableLine = labels.map(() => plan.availablePool);
+
+  chart("masterSpc", "master-spc-chart", {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "월 유동 지출 실사용", data: actualData, borderColor: PALETTE[0], backgroundColor: "rgba(32,99,155,.12)", tension: .25, fill: true, pointRadius: 4 },
+        { label: "현재 유동 예산 합계", data: currentBudgetLine, borderColor: PALETTE[3], borderDash: [6, 5], pointRadius: 0 },
+        { label: "가용 한도 (수입-고정비)", data: availableLine, borderColor: PALETTE[6], borderDash: [3, 4], pointRadius: 0 },
+        { label: "다음달 제안 합계", data: suggestedPoint, borderColor: PALETTE[2], backgroundColor: PALETTE[2], pointRadius: 7, pointStyle: "rectRot", showLine: false },
+      ],
+    },
+    options: baseChartOptions(),
+  });
+}
+
+async function applySpcSuggestions() {
+  const plan = computeSpcPlan();
+  const changed = plan.rows.filter((row) => row.basis !== "no-data" && Math.abs(row.target - row.current) >= SPC_MIN_STEP);
+  if (!changed.length) return toast("적용할 변경 사항이 없습니다.");
+  if (!confirm(`${changed.length}개 유동 항목의 다음달 Amount를 SPC 제안값으로 변경할까요? 과거 가계부 스냅샷은 유지됩니다.`)) return;
+  try {
+    const batch = writeBatch(db);
+    changed.forEach((row) => {
+      batch.update(userDoc("masters", row.master.id), { monthlyAmount: -row.target, updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+    toast(`${changed.length}개 Item에 SPC 제안을 반영했습니다.`);
+  } catch (error) { toast(humanError(error), "error"); }
 }
 
 function openMasterDialog(master = null) {
@@ -1471,6 +1654,7 @@ function bindEvents() {
     if (button.dataset.action === "edit-master") openMasterDialog(masterById(button.dataset.id));
     if (button.dataset.action === "toggle-master") toggleMaster(button.dataset.id);
   });
+  els.applySpcBtn.addEventListener("click", applySpcSuggestions);
 
   els.statsRefreshBtn.addEventListener("click", () => {
     state.statsCriteriaTouched = false;
