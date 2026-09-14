@@ -182,6 +182,7 @@ tr.outlier td { background: var(--danger-soft); }
 tr.archived td { color: #8d97a6; background: #f7f8fa; }
 .amount-income { color: var(--success); font-weight: 800; }
 .amount-expense { color: var(--danger); font-weight: 800; }
+.memo-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); cursor: default; }
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 999px; font-size: 9px; font-weight: 820; }
 .badge.fixed { background: #eef4fb; color: var(--brand-2); }
 .badge.variable { background: #fff5df; color: #9a6800; }
@@ -222,6 +223,16 @@ tr.archived td { color: #8d97a6; background: #f7f8fa; }
 .quarter-meta { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 9px; }
 .compact-chart { min-height: 250px; }
 tr.budget-over td { background: var(--danger-soft); }
+tr.criteria-row { cursor: pointer; }
+tr.criteria-row:hover td { background: #f3f6fa; }
+tr.criteria-row.expanded td { background: #eef3f8; }
+.criteria-name { display: inline-flex; align-items: center; gap: 6px; }
+.expand-caret { display: inline-block; width: 10px; color: var(--muted); font-size: 10px; }
+tr.criteria-detail-row td { padding: 6px 10px 14px 30px; border-bottom: 1px solid var(--line); background: #fbfcfd; }
+.nested-table table { font-size: 11px; }
+.nested-table th, .nested-table td { padding: 7px 9px; }
+.nested-table .progress { min-width: 90px; }
+.empty-state.small { padding: 10px; font-size: 11px; }
 td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
 
 .modal { border: 0; padding: 0; border-radius: 18px; width: min(560px, calc(100% - 28px)); box-shadow: 0 30px 80px rgba(20,36,51,.3); }

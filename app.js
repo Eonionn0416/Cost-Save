@@ -74,6 +74,7 @@ const state = {
   activeView: "dashboard",
   statsMonths: [],
   statsCriteriaTouched: false,
+  expandedCriteria: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -255,6 +256,28 @@ function criteriaBudgetRows(month) {
     const utilization = budget > 0 ? used / budget * 100 : (used > 0 ? Infinity : 0);
     return { criteria: name, budget, used, remaining, utilization, over: used > budget };
   }).sort((a, b) => b.budget - a.budget || b.used - a.used || a.criteria.localeCompare(b.criteria, "ko"));
+}
+
+function criteriaItemRows(month, criteriaName) {
+  const budgetMap = new Map();
+  expenseMasters().filter((master) => master.criteria === criteriaName).forEach((master) => {
+    budgetMap.set(master.item, (budgetMap.get(master.item) || 0) + Math.abs(Number(master.monthlyAmount || 0)));
+  });
+
+  const actualMap = new Map();
+  monthlyTransactions(month).filter((tx) => Number(tx.amount) < 0 && (tx.criteriaSnapshot || "미분류") === criteriaName).forEach((tx) => {
+    const item = tx.itemSnapshot || "미분류";
+    actualMap.set(item, (actualMap.get(item) || 0) + absAmount(tx));
+  });
+
+  const items = [...new Set([...budgetMap.keys(), ...actualMap.keys()])];
+  return items.map((name) => {
+    const budget = budgetMap.get(name) || 0;
+    const used = actualMap.get(name) || 0;
+    const remaining = budget - used;
+    const utilization = budget > 0 ? used / budget * 100 : (used > 0 ? Infinity : 0);
+    return { item: name, budget, used, remaining, utilization, over: used > budget };
+  }).sort((a, b) => b.used - a.used || b.budget - a.budget || a.item.localeCompare(b.item, "ko"));
 }
 
 function quarterBudgetTotal(month) {
@@ -631,13 +654,14 @@ function renderLedger() {
         <td>${escapeHtml(tx.criteriaSnapshot)}</td>
         <td>${escapeHtml(tx.itemSnapshot)}</td>
         <td>${escapeHtml(tx.place || "-")}</td>
+        <td class="memo-cell" title="${escapeHtml(tx.memo || "")}">${escapeHtml(tx.memo || "-")}</td>
         <td><span class="badge ${tx.flowTypeSnapshot === "유동" ? "variable" : "fixed"}">${escapeHtml(tx.flowTypeSnapshot || "-")}</span></td>
         <td>${escapeHtml(tx.bankSnapshot || "-")}</td>
         <td class="number ${Number(tx.amount) >= 0 ? "amount-income" : "amount-expense"}">${formatWon(tx.amount, true)}</td>
         <td>${status}</td>
         <td><div class="row-actions"><button class="table-btn" data-action="edit-tx" data-id="${tx.id}">수정</button><button class="table-btn danger" data-action="delete-tx" data-id="${tx.id}">삭제</button></div></td>
       </tr>`;
-  }).join("") : `<tr><td colspan="9"><div class="empty-state">조건에 맞는 가계부 기록이 없습니다.</div></td></tr>`;
+  }).join("") : `<tr><td colspan="10"><div class="empty-state">조건에 맞는 가계부 기록이 없습니다.</div></td></tr>`;
 }
 
 function editTransaction(id) {
@@ -807,15 +831,42 @@ function renderDashboard() {
     ? `${incomeInfo.sourceDate} 월급(+상여금) ${formatWon(availableIncome)} · Criteria 배분 ${formatWon(plannedBudget)} · 미배분/초과 계획 ${formatWon(allocationGap)}`
     : `${shiftMonth(month, -1)} 월말 자산에 월급(+상여금)을 입력하면 수입 기준 잔액이 계산됩니다.`;
 
-  els.dashboardCriteriaTbody.innerHTML = criteriaRows.length ? criteriaRows.map((row) => `
-    <tr class="${row.over ? "budget-over" : ""}">
-      <td><strong>${escapeHtml(row.criteria)}</strong></td>
+  els.dashboardCriteriaTbody.innerHTML = criteriaRows.length ? criteriaRows.map((row) => {
+    const expanded = state.expandedCriteria.has(row.criteria);
+    const summaryRow = `
+    <tr class="criteria-row ${row.over ? "budget-over" : ""} ${expanded ? "expanded" : ""}" data-action="toggle-criteria" data-criteria="${escapeHtml(row.criteria)}">
+      <td><strong class="criteria-name"><span class="expand-caret">${expanded ? "▾" : "▸"}</span>${escapeHtml(row.criteria)}</strong></td>
       <td class="number">${formatWon(row.budget)}</td>
       <td class="number">${formatWon(row.used)}</td>
       <td class="number ${row.remaining < 0 ? "amount-expense" : "amount-income"}">${formatWon(row.remaining)}</td>
       <td><div class="progress ${row.over ? "over" : ""}"><span style="width:${Math.min(Number.isFinite(row.utilization) ? row.utilization : 100, 100)}%"></span></div><small>${Number.isFinite(row.utilization) ? formatPercent(row.utilization) : "예산 없음"}</small></td>
       <td><span class="badge ${row.over ? "danger" : row.utilization >= 80 ? "warn" : "ok"}">${row.over ? "초과" : row.utilization >= 80 ? "주의" : "여유"}</span></td>
-    </tr>`).join("") : `<tr><td colspan="6"><div class="empty-state">기준표에 지출·저축 Criteria를 추가해 주세요.</div></td></tr>`;
+    </tr>`;
+    if (!expanded) return summaryRow;
+    const itemRows = criteriaItemRows(month, row.criteria);
+    const detailRow = `
+    <tr class="criteria-detail-row">
+      <td colspan="6">
+        <div class="table-wrap nested-table">
+          <table class="detail-table">
+            <thead><tr><th>Item</th><th class="number">월 예산</th><th class="number">실시간 사용</th><th class="number">남은 금액</th><th>사용률</th><th>상태</th></tr></thead>
+            <tbody>
+              ${itemRows.length ? itemRows.map((item) => `
+                <tr class="${item.over ? "budget-over" : ""}">
+                  <td>${escapeHtml(item.item)}</td>
+                  <td class="number">${formatWon(item.budget)}</td>
+                  <td class="number">${formatWon(item.used)}</td>
+                  <td class="number ${item.remaining < 0 ? "amount-expense" : "amount-income"}">${formatWon(item.remaining)}</td>
+                  <td><div class="progress ${item.over ? "over" : ""}"><span style="width:${Math.min(Number.isFinite(item.utilization) ? item.utilization : 100, 100)}%"></span></div><small>${Number.isFinite(item.utilization) ? formatPercent(item.utilization) : "예산 없음"}</small></td>
+                  <td><span class="badge ${item.over ? "danger" : item.utilization >= 80 ? "warn" : "ok"}">${item.over ? "초과" : item.utilization >= 80 ? "주의" : "여유"}</span></td>
+                </tr>`).join("") : `<tr><td colspan="6"><div class="empty-state small">이 Criteria에는 등록된 Item 또는 지출 기록이 없습니다.</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+    return summaryRow + detailRow;
+  }).join("") : `<tr><td colspan="6"><div class="empty-state">기준표에 지출·저축 Criteria를 추가해 주세요.</div></td></tr>`;
   els.dashboardCriteriaTfoot.innerHTML = criteriaRows.length ? `<tr><th>TTL</th><th class="number">${formatWon(plannedBudget)}</th><th class="number">${formatWon(totalOutflow)}</th><th class="number">${formatWon(budgetRemaining)}</th><th>${formatPercent(plannedBudget ? totalOutflow / plannedBudget * 100 : 0)}</th><th></th></tr>` : "";
 
   const quarterRows = quarterBudgetRows(month);
@@ -1386,6 +1437,14 @@ function bindEvents() {
   els.quickAddBtn.addEventListener("click", () => { setView("ledger"); els.transactionForm.scrollIntoView({ behavior: "smooth" }); });
 
   els.dashboardMonth.addEventListener("change", renderDashboard);
+  els.dashboardCriteriaTbody.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-action='toggle-criteria']");
+    if (!row) return;
+    const criteria = row.dataset.criteria;
+    if (state.expandedCriteria.has(criteria)) state.expandedCriteria.delete(criteria);
+    else state.expandedCriteria.add(criteria);
+    renderDashboard();
+  });
   els.transactionCriteria.addEventListener("change", () => { populateTransactionItems(); populateBankOptions(); });
   els.transactionItem.addEventListener("change", () => { populateBankOptions(masterById(els.transactionItem.value)?.bank); updateTransactionHint(); });
   els.transactionForm.addEventListener("submit", saveTransaction);
