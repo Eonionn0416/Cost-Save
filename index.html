@@ -297,16 +297,9 @@
 
         <div id="stats-kpis" class="kpi-grid"></div>
 
-        <div class="dashboard-grid">
-          <article class="panel span-3">
-            <div class="panel-heading"><div><h3>Monthly × Bank 사용 금액 Trend</h3><p>은행별 월 지출 합계</p></div></div>
-            <div class="chart-wrap"><canvas id="bank-trend-chart"></canvas></div>
-          </article>
-          <article class="panel span-3">
-            <div class="panel-heading"><div><h3>Monthly × Criteria 사용 금액 Trend</h3><p>Criteria별 월 지출 합계</p></div></div>
-            <div class="chart-wrap"><canvas id="criteria-trend-chart"></canvas></div>
-          </article>
-          <article class="panel span-3">
+
+        <section class="analysis-section"><h3 class="analysis-title">01 · 월별 Quarter / Criteria</h3>
+          <div class="trend-pair"><article class="panel">
             <div class="panel-heading">
               <div>
                 <h3>Monthly × Quarter 사용 금액 Trend</h3>
@@ -314,24 +307,17 @@
               </div>
             </div>
             <div class="chart-wrap"><canvas id="quarter-trend-chart"></canvas></div>
-          </article>
-          <article class="panel span-3">
-            <div class="panel-heading wrap">
-              <div><h3>Monthly × Item 사용 금액 Trend</h3><p>선택 Criteria에 속한 Item별 추세</p></div>
-              <select id="stats-item-criteria" class="compact-select"></select>
-            </div>
-            <div class="chart-wrap"><canvas id="item-trend-chart"></canvas></div>
-          </article>
-          <article class="panel span-3">
-            <div class="panel-heading wrap">
-              <div><h3>Monthly × 목적 Trend</h3><p>선택 Item의 목적별 추세</p></div>
-              <select id="stats-place-item" class="compact-select" aria-label="목적 Trend Item 선택"></select>
-            </div>
-            <div class="chart-wrap"><canvas id="place-trend-chart"></canvas></div>
-          </article>
-        </div>
-
-        <article class="panel spaced">
+          </article><article class="panel">
+            <div class="panel-heading"><div><h3>Monthly × Criteria 사용 금액 Trend</h3><p>Criteria별 월 지출 합계</p></div></div>
+            <div class="chart-wrap"><canvas id="criteria-trend-chart"></canvas></div>
+          </article></div>
+        </section>
+        <section class="analysis-section"><div class="panel-heading wrap"><h3 class="analysis-title">02 · Criteria별 Item / 목적</h3>
+          <div class="filter-row"><button id="detail-prev" class="btn secondary" type="button">← 이전 5개월</button><span id="detail-period" aria-live="polite"></span><button id="detail-next" class="btn secondary" type="button">다음 5개월 →</button></div></div>
+          <div id="detail-trend-rows"></div>
+        </section>
+        <section class="analysis-section"><h3 class="analysis-title">03 · 유동 Item별 SPC 분석</h3><div id="spc-rows"></div></section>
+        <section class="analysis-section"><h3 class="analysis-title">04 · 월별 예산 판정</h3><article class="panel spaced">
           <div class="panel-heading wrap">
             <div>
               <h3>월별 Budget KPI / USL</h3>
@@ -345,37 +331,7 @@
               <tbody id="budget-kpi-tbody"></tbody>
             </table>
           </div>
-        </article>
-
-        <div class="dashboard-grid spaced">
-          <article class="panel span-2">
-            <div class="panel-heading wrap">
-              <div>
-                <h3>유동 지출 SPC</h3>
-                <p>월 합계, USL, 6-point rise 및 Spec 초과 표시</p>
-              </div>
-              <select id="spc-item-select" class="compact-select"></select>
-            </div>
-            <div class="chart-wrap"><canvas id="spc-chart"></canvas></div>
-          </article>
-          <article class="panel">
-            <div class="panel-heading"><div><h3>SPC Summary</h3><p>단측 Cpk와 95% 개인 결제 상한</p></div></div>
-            <div id="spc-summary" class="metric-stack"></div>
-          </article>
-          <article class="panel span-3">
-            <div class="panel-heading">
-              <div>
-                <h3>월별 일일 지출 Min · Avg · Max Trend</h3>
-                <p id="daily-range-summary">선택한 SPC Item의 같은 날짜 결제액을 합산해 월별 범위를 계산합니다.</p>
-              </div>
-            </div>
-            <div class="chart-wrap"><canvas id="daily-range-chart"></canvas></div>
-          </article>
-          <article class="panel span-3">
-            <div class="panel-heading"><div><h3>Rolling Cpk Trend</h3><p>해당 월까지의 누적 월 지출 분포로 계산</p></div></div>
-            <div class="chart-wrap"><canvas id="cpk-chart"></canvas></div>
-          </article>
-        </div>
+        </article></section>
       </section>
 
       <section id="view-assets" class="view">
@@ -400,12 +356,19 @@
             </form>
           </article>
 
-          <article class="panel">
-            <div class="panel-heading"><div><h3>월급 · Cash · Stock · Insurance · All Trend</h3><p>기준일별 월급(+상여금)과 자산 변화 · 같은 기준일을 다시 저장하면 기존 점을 수정</p></div></div>
-            <div class="chart-wrap tall"><canvas id="asset-trend-chart"></canvas></div>
-          </article>
-        </div>
+          <div class="asset-chart-stack">
+            <article class="panel"><div class="panel-heading"><h3>All · Stock Trend</h3></div><div class="chart-wrap"><canvas id="asset-trend-chart"></canvas></div></article>
+            <article class="panel"><div class="panel-heading"><h3>월급(+상여금) · Cash · Insurance Trend</h3></div><div class="chart-wrap"><canvas id="asset-small-chart"></canvas></div></article>
+          </div>   </div>
 
+
+        <section class="analysis-section"><h3 class="analysis-title">All 자산 목표 · 실제 달성 추이</h3>
+          <p class="asset-target-note">다음 달 목표 = 기준월 All + 월급(+상여금) − 다음 달 목표 소비 지출. 기준표의 SPC 제안 예산을 사용하며 ‘저축’ Criteria는 자산 내 이동으로 보아 제외합니다. 실제 All이 목표 이상이면 달성입니다. 투자 수익률은 가정하지 않습니다.</p>
+          <div id="asset-target-kpis" class="kpi-grid"></div>
+          <div class="trend-pair"><article class="panel"><h3>All Actual / 목표</h3><div class="chart-wrap"><canvas id="asset-target-chart"></canvas></div></article>
+          <article class="panel"><h3>Actual 상승률 · 목표 상승률 · 목표 − Actual</h3><p class="muted">전월 실제 All 대비 상승률(%) · 상승률 차이(%p)</p><div class="chart-wrap"><canvas id="asset-growth-chart"></canvas></div></article></div>
+          <div class="table-wrap spaced"><table><thead><tr><th>대상 월</th><th class="number">목표 All</th><th class="number">Actual All</th><th class="number">Actual 상승률</th><th class="number">목표 상승률</th><th class="number">목표 − Actual (%p)</th><th>판정 / 목표 근거</th></tr></thead><tbody id="asset-target-tbody"></tbody></table></div>
+        </section>
         <article class="panel spaced">
           <div class="table-wrap">
             <table>

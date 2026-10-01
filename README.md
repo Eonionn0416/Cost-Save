@@ -1,5 +1,7 @@
 # Cost Trend 가계부
 
+> 최신 변경 내용과 자산 목표 계산 기준은 CHANGES.md를 확인하세요.
+
 Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가계부 웹앱입니다. 별도의 서버나 빌드 과정 없이 `index.html`, `styles.css`, `app.js`를 GitHub 저장소에 올리면 됩니다.
 
 ## 구현 기능
@@ -13,8 +15,8 @@ Firebase Firestore + Authentication과 GitHub Pages로 실행하는 개인 가�
 - 대시보드 월별 예산·현금흐름과 통계/SPC Trend는 기본적으로 현재 월의 다음 달까지 표시
 - 통계/SPC 기본 범위는 13개월이며, 2026년 7월 기준 2025-08~2026-08
 - 미래 월은 X축에 표시하되 SPC 평균·표준편차·Cpk 계산에서는 제외
-- 월 × Bank, Criteria, Item, 목적 Trend
-  - Item Trend의 Criteria 선택이 목적 Trend에 자동 연동
+- 월 × Criteria, Item, 목적 Trend (Bank Trend 제거)
+  - Criteria별 Item·목적 그래프를 좌우 배치하고 5개월씩 이동
 - 월 × Quarter 사용 금액 Trend
   - Q1 1~7일, Q2 8~14일, Q3 15~21일, Q4 22일~말일 기준
   - 월별 최고 사용 Quarter를 강조 표시
@@ -151,3 +153,4 @@ README.md        설정 및 배포 방법
 ## 참고
 
 웹 프로젝트에서는 Java가 아니라 **JavaScript**를 사용합니다. 현재 구성은 HTML + CSS + JavaScript이며 Visual Studio Code에서 바로 수정할 수 있습니다.
+

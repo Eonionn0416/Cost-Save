@@ -86,6 +86,9 @@ const state = {
   statsMonths: [],
   statsCriteriaTouched: false,
   expandedCriteria: new Set(),
+  expandedMasters: new Set(),
+  detailEnd: "",
+  placeSelections: new Map(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -733,9 +736,10 @@ function updateTransactionHint() {
 }
 
 function resetTransactionForm() {
+  const retainedDate = els.transactionDate.value || todayString();
   els.transactionForm.reset();
   els.transactionId.value = "";
-  els.transactionDate.value = todayString();
+  els.transactionDate.value = retainedDate;
   els.transactionFormTitle.textContent = "가계부 작성";
   els.transactionCancelBtn.classList.add("hidden");
   populateTransactionSelectors();
@@ -886,7 +890,7 @@ function renderMasterTable() {
   const suggestionByMasterId = new Map(spcPlan.rows.map((row) => [row.master.id, row]));
   els.masterSuggestedTotal.textContent = formatWon(spcPlan.income - spcPlan.suggestedTtl, true);
 
-  els.masterTbody.innerHTML = rows.length ? rows.map((m) => `
+  const masterRow = (m) => `
     <tr class="${m.active === false ? "archived" : ""}">
       <td>${escapeHtml(m.criteria)}</td><td>${escapeHtml(m.item)}</td>
       <td class="number ${m.monthlyAmount >= 0 ? "amount-income" : "amount-expense"}">${formatWon(m.monthlyAmount, true)}</td>
@@ -895,7 +899,15 @@ function renderMasterTable() {
       <td>${escapeHtml(m.bank)}</td>
       <td><span class="badge ${m.active === false ? "neutral" : "ok"}">${m.active === false ? "보관" : "사용 중"}</span></td>
       <td><div class="row-actions"><button class="table-btn" data-action="edit-master" data-id="${m.id}">수정</button><button class="table-btn ${m.active === false ? "" : "danger"}" data-action="toggle-master" data-id="${m.id}">${m.active === false ? "복원" : "보관"}</button></div></td>
-    </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">기준 항목이 없습니다. 기본표를 추가해 주세요.</div></td></tr>`;
+    </tr>`;
+  const groups = [...new Set(rows.map(m => m.criteria))];
+  els.masterTbody.innerHTML = groups.length ? groups.map(criteria => {
+    const items = rows.filter(m => m.criteria === criteria);
+    const expanded = state.expandedMasters.has(criteria);
+    const total = items.filter(m => m.active !== false).reduce((sum,m) => sum + Number(m.monthlyAmount),0);
+    const suggested = items.filter(m => m.active !== false).reduce((sum,m) => sum + (suggestionByMasterId.has(m.id) ? -suggestionByMasterId.get(m.id).target : Number(m.monthlyAmount)),0);
+    return `<tr class="criteria-row"><td><button class="table-btn" data-action="expand-master" data-criteria="${escapeHtml(criteria)}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"} ${escapeHtml(criteria)}</button></td><td>${items.length}개 Item</td><td class="number">${formatWon(total,true)}</td><td class="number">${formatWon(suggested,true)}</td><td colspan="4">클릭하여 세부 Item 보기</td></tr>${expanded ? items.map(masterRow).join("") : ""}`;
+  }).join("") : '<tr><td colspan="8">기준 항목이 없습니다.</td></tr>';
 
   renderMasterSpcPanel(spcPlan);
 }
@@ -1204,42 +1216,7 @@ function renderDashboard() {
   els.dashboardAlerts.innerHTML = alerts.length ? alerts.slice(0, 10).map((item) => `<div class="alert-item"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p></div><span class="badge danger">${escapeHtml(item.badge)}</span></div>`).join("") : "선택 월에 예산 초과 또는 통계적 이상 지출이 없습니다.";
 }
 
-function populateStatisticsSelectors() {
-  const criteria = [...new Set(activeMasters().map((m) => m.criteria))].sort((a, b) => a.localeCompare(b, "ko"));
-  const previous = els.statsItemCriteria.value;
-  els.statsItemCriteria.innerHTML = criteria.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  if (criteria.includes(previous)) els.statsItemCriteria.value = previous;
-
-  populatePlaceItems();
-
-  const variables = variableExpenseMasters();
-  const previousSpc = els.spcItemSelect.value;
-  els.spcItemSelect.innerHTML = variables.map((m) => `<option value="${m.id}">${escapeHtml(m.criteria)} · ${escapeHtml(m.item)}</option>`).join("");
-  if (variables.some((m) => m.id === previousSpc)) els.spcItemSelect.value = previousSpc;
-}
-
-function populatePlaceItems() {
-  const criteria = els.statsItemCriteria.value;
-  const items = activeMasters().filter((m) => m.criteria === criteria);
-  const previous = els.statsPlaceItem.value;
-  els.statsPlaceItem.innerHTML = items.map((m) => `<option value="${m.id}">${escapeHtml(m.item)}</option>`).join("");
-  if (items.some((m) => m.id === previous)) {
-    els.statsPlaceItem.value = previous;
-    return;
-  }
-
-  const fallbackMonths = monthRange(els.statsStartMonth.value, els.statsEndMonth.value);
-  const month = statisticsFocusMonth(state.statsMonths.length ? state.statsMonths : fallbackMonths);
-  const best = items
-    .map((master) => ({
-      master,
-      amount: state.transactions
-        .filter((tx) => tx.amount < 0 && txMonth(tx) === month && transactionMatchesMaster(tx, master))
-        .reduce((sum, tx) => sum + absAmount(tx), 0),
-    }))
-    .sort((a, b) => b.amount - a.amount)[0]?.master;
-  if (best) els.statsPlaceItem.value = best.id;
-}
+function populateStatisticsSelectors() {}
 
 function groupMonthly(months, transactions, keyGetter) {
   const keys = [...new Set(transactions.map(keyGetter).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
@@ -1342,33 +1319,56 @@ function renderStatistics() {
     { label: "평균 Cpk", value: avgCpk === null ? "-" : avgCpk.toFixed(2), tone: avgCpk !== null && avgCpk < 1.33 ? "bad" : "good", sub: "유동 Item 단측 Cpk" },
   ]);
 
-  chart("bankTrend", "bank-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, txs, (tx) => tx.bankSnapshot || "미지정") }, options: baseChartOptions() });
   chart("criteriaTrend", "criteria-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, txs, (tx) => tx.criteriaSnapshot) }, options: baseChartOptions() });
   renderQuarterTrend(months, txs);
 
-  const criteriaOptions = [...els.statsItemCriteria.options].map((option) => option.value);
-  if (!state.statsCriteriaTouched || !criteriaOptions.includes(els.statsItemCriteria.value)) {
-    const defaultCriteria = highestSpendCriteria(statisticsFocusMonth(months), txs, criteriaOptions);
-    if (defaultCriteria) els.statsItemCriteria.value = defaultCriteria;
-  }
-  populatePlaceItems();
-
-  const itemCriteria = els.statsItemCriteria.value;
-  const itemTxs = txs.filter((tx) => tx.criteriaSnapshot === itemCriteria);
-  chart("itemTrend", "item-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, itemTxs, (tx) => tx.itemSnapshot) }, options: baseChartOptions() });
-
-  const placeMaster = masterById(els.statsPlaceItem.value);
-  const placeTxs = txs.filter((tx) => transactionMatchesMaster(tx, placeMaster));
-  chart("placeTrend", "place-trend-chart", { type: "line", data: { labels: months, datasets: groupMonthly(months, placeTxs, (tx) => tx.place || "미입력") }, options: baseChartOptions() });
-
+  renderDetailTrends(months, txs);
   renderBudgetKpi();
-  renderSpc();
+  renderSpcRows();
 }
 
-function renderDailySpendRange(master, months) {
+function destroyChartGroup(prefix) {
+  Object.keys(state.charts).filter(key => key.startsWith(prefix)).forEach(key => { state.charts[key].destroy(); delete state.charts[key]; });
+}
+
+function renderDetailTrends(months, txs) {
+  destroyChartGroup("detail-");
+  const last = months.at(-1);
+  if (!state.detailEnd || !months.includes(state.detailEnd)) state.detailEnd = last;
+  const endIndex = months.indexOf(state.detailEnd);
+  const visible = months.slice(Math.max(0,endIndex-4),endIndex+1);
+  $("detail-period").textContent = visible.length ? visible[0] + " ~ " + visible.at(-1) : "조회 기간을 확인해 주세요.";
+  $("detail-prev").disabled = endIndex < 5;
+  $("detail-next").disabled = endIndex >= months.length-1;
+  const criteria = [...new Set([...expenseMasters().map(m=>m.criteria), ...txs.map(tx=>tx.criteriaSnapshot)])].filter(c=>c && c !== "월급").sort((a,b)=>a.localeCompare(b,"ko"));
+  $("detail-trend-rows").innerHTML = criteria.map((c,i) => `<div class="criteria-trend-block"><h4>${escapeHtml(c)}</h4><div class="trend-pair"><article class="panel"><div class="panel-heading"><h3>Monthly × Item 사용 금액 Trend</h3></div><div class="chart-wrap"><canvas id="detail-item-${i}"></canvas></div></article><article class="panel"><div class="panel-heading wrap"><h3>Monthly × 목적 Trend</h3><label>세부 Item <select id="detail-select-${i}"></select></label></div><div class="chart-wrap"><canvas id="detail-place-${i}"></canvas></div></article></div></div>`).join("") || '<div class="empty-state">지출 Item을 추가해 주세요.</div>';
+  criteria.forEach((c,i)=>{
+    const rows = txs.filter(tx=>tx.criteriaSnapshot===c && tx.itemSnapshot !== "월급");
+    const items = [...new Set([...expenseMasters().filter(m=>m.criteria===c).map(m=>m.item),...rows.map(tx=>tx.itemSnapshot)])].filter(item=>item !== "월급");
+    const select = $("detail-select-"+i);
+    select.innerHTML=items.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
+    if(items.includes(state.placeSelections.get(c))) select.value=state.placeSelections.get(c);
+    const drawPlace=()=>{
+      state.placeSelections.set(c,select.value);
+      chart("detail-place-"+i,"detail-place-"+i,{type:"line",data:{labels:visible,datasets:groupMonthly(visible,rows.filter(tx=>tx.itemSnapshot===select.value),tx=>tx.place || "미입력")},options:baseChartOptions()});
+    };
+    select.addEventListener("change",drawPlace);
+    chart("detail-item-"+i,"detail-item-"+i,{type:"line",data:{labels:visible,datasets:groupMonthly(visible,rows,tx=>tx.itemSnapshot)},options:baseChartOptions()});
+    drawPlace();
+  });
+}
+
+function renderSpcRows() {
+  destroyChartGroup("item-spc-");
+  const masters=variableExpenseMasters();
+  $("spc-rows").innerHTML=masters.map((m,i)=>`<div class="spc-item-block"><h4>${escapeHtml(m.criteria)} · ${escapeHtml(m.item)}</h4><div class="spc-grid"><article class="panel"><h3>유동 지출 SPC</h3><div class="chart-wrap"><canvas id="spc-${i}"></canvas></div></article><article class="panel"><h3>SPC Summary</h3><div id="spc-summary-${i}" class="metric-stack"></div></article><article class="panel"><h3>월별 일일 지출 Min · Avg · Max Trend</h3><p id="daily-summary-${i}" class="muted"></p><div class="chart-wrap"><canvas id="daily-${i}"></canvas></div></article><article class="panel"><h3>Rolling Cpk Trend</h3><div class="chart-wrap"><canvas id="cpk-${i}"></canvas></div></article></div></div>`).join("") || '<div class="empty-state">유동 지출 Item을 추가하면 SPC를 계산합니다.</div>';
+  masters.forEach((m,i)=>renderSpc(m,i));
+}
+
+function renderDailySpendRange(master, months, index) {
   if (!master || !months.length) {
-    if (els.dailyRangeSummary) els.dailyRangeSummary.textContent = "선택한 SPC Item의 일별 데이터가 없습니다.";
-    chart("dailyRange", "daily-range-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    if ($("daily-summary-" + index)) $("daily-summary-" + index).textContent = "선택한 SPC Item의 일별 데이터가 없습니다.";
+    chart("item-spc-daily-" + index, "daily-" + index, { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
     return;
   }
 
@@ -1396,13 +1396,13 @@ function renderDailySpendRange(master, months) {
   const maxOutliers = stats.map((row) => row.max !== null && upper95 !== null && row.max > upper95);
   const outlierCount = maxOutliers.filter(Boolean).length;
 
-  if (els.dailyRangeSummary) {
-    els.dailyRangeSummary.textContent = upper95 === null
+  if ($("daily-summary-" + index)) {
+    $("daily-summary-" + index).textContent = upper95 === null
       ? `${master.criteria} · ${master.item} · 일별 표본 ${allDailyValues.length}일 (95% 상한은 5일 이상 필요)`
       : `${master.criteria} · ${master.item} · 95% 일별 상한 ${formatWon(upper95)} · Max 이상점 ${outlierCount}개`;
   }
 
-  chart("dailyRange", "daily-range-chart", {
+  chart("item-spc-daily-" + index, "daily-" + index, {
     type: "line",
     data: {
       labels: months,
@@ -1466,17 +1466,15 @@ function renderBudgetKpi() {
     </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">활성 지출 기준 항목이 없습니다.</div></td></tr>`;
 }
 
-function renderSpc() {
-  const master = masterById(els.spcItemSelect.value) || variableExpenseMasters()[0];
+function renderSpc(master, index) {
   if (!master || !state.statsMonths.length) {
-    els.spcSummary.innerHTML = `<div class="empty-state">유동 지출 Item을 추가하면 SPC를 계산합니다.</div>`;
-    chart("spc", "spc-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
-    chart("dailyRange", "daily-range-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
-    chart("cpk", "cpk-chart", { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
-    if (els.dailyRangeSummary) els.dailyRangeSummary.textContent = "유동 지출 Item을 추가하면 일별 Min · Avg · Max를 계산합니다.";
+    $("spc-summary-" + index).innerHTML = `<div class="empty-state">유동 지출 Item을 추가하면 SPC를 계산합니다.</div>`;
+    chart("item-spc-main-" + index, "spc-" + index, { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    chart("item-spc-daily-" + index, "daily-" + index, { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    chart("item-spc-cpk-" + index, "cpk-" + index, { type: "line", data: { labels: [], datasets: [] }, options: baseChartOptions() });
+    if ($("daily-summary-" + index)) $("daily-summary-" + index).textContent = "유동 지출 Item을 추가하면 일별 Min · Avg · Max를 계산합니다.";
     return;
   }
-  els.spcItemSelect.value = master.id;
   const months = state.statsMonths;
   const monthlyValues = months.map((month) => month > currentMonth()
     ? null
@@ -1500,7 +1498,7 @@ function renderSpc() {
     return values.length < 3 ? null : cpkOneSided(usl, values);
   });
 
-  chart("spc", "spc-chart", {
+  chart("item-spc-main-" + index, "spc-" + index, {
     type: "line",
     data: { labels: months, datasets: [
       { label: "월 사용액", data: monthlyValues, borderColor: "#20639b", backgroundColor: "rgba(32,99,155,.12)", tension: .2, fill: true, pointBackgroundColor: pointColors, pointBorderColor: pointColors, pointRadius: monthlyValues.map((_, i) => breaches[i] || rises[i] ? 6 : 3) },
@@ -1509,7 +1507,7 @@ function renderSpc() {
     options: baseChartOptions(),
   });
 
-  chart("cpk", "cpk-chart", {
+  chart("item-spc-cpk-" + index, "cpk-" + index, {
     type: "line",
     data: { labels: months, datasets: [
       { label: "Rolling Cpk", data: rolling.map((v) => Number.isFinite(v) ? v : null), borderColor: "#3caea3", backgroundColor: "rgba(60,174,163,.12)", fill: true, tension: .25, pointBackgroundColor: rolling.map((v) => v !== null && v < 1.33 ? "#d64545" : "#3caea3"), pointRadius: 4 },
@@ -1518,11 +1516,11 @@ function renderSpc() {
     options: baseChartOptions({ scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: "rgba(104,115,134,.12)" }, ticks: { font: { size: 10 } } } }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3) ?? "-"}` } } } }),
   });
 
-  renderDailySpendRange(master, months);
+  renderDailySpendRange(master, months, index);
 
   const cpkText = cpk === Infinity ? "∞" : cpk === -Infinity ? "-∞" : cpk === null ? "-" : cpk.toFixed(3);
   const cpkStatus = cpk !== null && cpk >= 1.33 ? "양호" : "개선 필요";
-  els.spcSummary.innerHTML = `
+  $("spc-summary-" + index).innerHTML = `
     <div class="metric-row"><span>대상</span><strong>${escapeHtml(master.criteria)} · ${escapeHtml(master.item)}</strong></div>
     <div class="metric-row"><span>월 USL</span><strong>${formatWon(usl)}</strong></div>
     <div class="metric-row"><span>월 평균</span><strong>${formatWon(mean(analysisValues))}</strong></div>
@@ -1587,6 +1585,8 @@ async function saveAsset(event) {
   const stock = Number(els.assetStock.value);
   const insurance = Number(els.assetInsurance.value);
   const values = { date, month: date.slice(0, 7), salaryBonus, cash, stock, insurance, total: cash + stock + insurance };
+  const expenseTarget = assetExpenseTarget();
+  Object.assign(values, { nextTargetMonth: shiftMonth(values.month, 1), nextTargetExpense: expenseTarget, nextTargetTotal: values.total + salaryBonus - expenseTarget, targetPolicy: "spc-exclude-savings-v1" });
   const payload = { ...values, updatedAt: serverTimestamp() };
   const editingId = els.assetId.value;
   const sameDate = state.assets.find((asset) => asset.date === date && asset.id !== editingId);
@@ -1616,20 +1616,53 @@ async function saveAsset(event) {
   } catch (error) { toast(humanError(error), "error"); }
 }
 
+function assetExpenseTarget() {
+  const suggested = new Map(computeSpcPlan().rows.map(row=>[row.master.id,row.target]));
+  return expenseMasters().filter(m=>String(m.criteria).trim() !== "저축")
+    .reduce((sum,m)=>sum+(suggested.get(m.id) ?? Math.abs(Number(m.monthlyAmount))),0);
+}
+
+function assetTargetRows(assets) {
+  const byMonth=new Map();
+  assets.forEach(a=>byMonth.set(a.date.slice(0,7),a));
+  if(!assets.length) return [];
+  const months=monthRange(assets[0].date.slice(0,7),shiftMonth(assets.at(-1).date.slice(0,7),1));
+  const expense=assetExpenseTarget();
+  return months.map(month=>{
+    const actual=byMonth.get(month),previous=byMonth.get(shiftMonth(month,-1));
+    const saved=previous?.nextTargetMonth===month && Number.isFinite(previous?.nextTargetTotal);
+    const hasIncome=previous && Number.isFinite(Number(previous.salaryBonus)) && previous.salaryBonus !== undefined;
+    const target=saved ? previous.nextTargetTotal : hasIncome ? previous.total+Number(previous.salaryBonus)-expense : null;
+    const base=previous?.total;
+    const rate=value=>base>0 && value!==null ? (value-base)/base*100 : null;
+    const actualTotal=actual?.total ?? null, actualRate=rate(actualTotal),targetRate=rate(target);
+    return {month,actual:actualTotal,target,actualRate,targetRate,gap:actualRate!==null && targetRate!==null ? targetRate-actualRate:null,saved};
+  });
+}
+
+function renderAssetTargets(assets) {
+  // Old records without income cannot support a forecast; preserve that missing value.
+  const source=assets.map(a=>({...a,salaryBonus:state.assets.find(raw=>raw.id===a.id)?.salaryBonus}));
+  const rows=assetTargetRows(source), latest=rows.at(-1);
+  renderKpiCards($("asset-target-kpis"),[
+    {label:"다음 기록 월",value:latest?.month || "-",sub:"마지막 기준월의 다음 달"},
+    {label:"다음 달 All 목표",value:latest?.target != null ? formatWon(latest.target):"계산 불가",sub:"실제 자산이 목표 이상이면 달성"},
+    {label:"목표 소비 지출",value:formatWon(assets.at(-1)?.nextTargetExpense ?? assetExpenseTarget()),sub:"저축 제외 · 고정비 + 유동 SPC 제안"},
+  ]);
+  const series=(label,key,color)=>({label,data:rows.map(r=>r[key]),borderColor:color,tension:.2,pointRadius:4,spanGaps:false});
+  chart("assetTarget","asset-target-chart",{type:"line",data:{labels:rows.map(r=>r.month),datasets:[series("Actual All","actual",PALETTE[0]),{...series("목표 All","target",PALETTE[3]),borderDash:[6,4]}]},options:baseChartOptions()});
+  chart("assetGrowth","asset-growth-chart",{type:"line",data:{labels:rows.map(r=>r.month),datasets:[series("Actual 상승률 (%)","actualRate",PALETTE[0]),series("목표 상승률 (%)","targetRate",PALETTE[2]),series("목표 − Actual (%p)","gap",PALETTE[3])]},options:baseChartOptions({scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v.toFixed(1)},title:{display:true,text:"상승률 (%) / 차이 (%p)"}}} ,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+": "+(ctx.parsed.y?.toFixed(2) ?? "-")}}}})});
+  const pct=v=>v===null ? "-":formatPercent(v,2);
+  $("asset-target-tbody").innerHTML=rows.map(r=>`<tr><td>${r.month}</td><td class="number">${r.target===null ? "-":formatWon(r.target)}</td><td class="number">${r.actual===null ? "-":formatWon(r.actual)}</td><td class="number">${pct(r.actualRate)}</td><td class="number">${pct(r.targetRate)}</td><td class="number">${r.gap===null ? "-":r.gap.toFixed(2)+"%p"}</td><td>${r.target===null ? "전월 자산·월급 필요":r.actual===null ? "다음 달 목표":r.actual>=r.target ? "달성":"미달"} · ${r.saved ? "저장된 목표":"현재 예산 재계산"}</td></tr>`).join("") || '<tr><td colspan="7">월말 자산을 입력하면 목표를 계산합니다.</td></tr>';
+}
+
 function renderAssets() {
   const assets = state.assets.map(normalizedAsset).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const labels = assets.map((a) => a.date);
-  chart("assets", "asset-trend-chart", {
-    type: "line",
-    data: { labels, datasets: [
-      { label: "월급(+상여금)", data: assets.map((a) => a.salaryBonus), borderColor: PALETTE[4], borderDash: [7, 5], borderWidth: 2, tension: .2, pointRadius: 4, pointStyle: "rectRot" },
-      { label: "Cash", data: assets.map((a) => a.cash), borderColor: PALETTE[0], tension: .2, pointRadius: 4 },
-      { label: "Stock", data: assets.map((a) => a.stock), borderColor: PALETTE[1], tension: .2, pointRadius: 4 },
-      { label: "Insurance", data: assets.map((a) => a.insurance), borderColor: PALETTE[2], tension: .2, pointRadius: 4 },
-      { label: "All", data: assets.map((a) => a.total), borderColor: PALETTE[3], borderWidth: 3, tension: .2, pointRadius: 5 },
-    ] },
-    options: baseChartOptions(),
-  });
+  const assetSeries=(label,key,color)=>({label,data:assets.map(a=>a[key]),borderColor:color,tension:.2,pointRadius:4});
+  chart("assets", "asset-trend-chart", {type:"line",data:{labels,datasets:[assetSeries("All","total",PALETTE[3]),assetSeries("Stock","stock",PALETTE[1])]},options:baseChartOptions()});
+  chart("assetsSmall", "asset-small-chart", {type:"line",data:{labels,datasets:[assetSeries("월급(+상여금)","salaryBonus",PALETTE[4]),assetSeries("Cash","cash",PALETTE[0]),assetSeries("Insurance","insurance",PALETTE[2])]},options:baseChartOptions()});
+  renderAssetTargets(assets);
   els.assetTbody.innerHTML = assets.length ? [...assets].reverse().map((a) => `
     <tr><td>${escapeHtml(a.date)}</td><td class="number"><strong>${formatWon(a.salaryBonus)}</strong></td><td class="number">${formatWon(a.cash)}</td><td class="number">${formatWon(a.stock)}</td><td class="number">${formatWon(a.insurance)}</td><td class="number"><strong>${formatWon(a.total)}</strong></td><td><div class="row-actions"><button class="table-btn" data-action="edit-asset" data-id="${a.id}">수정</button><button class="table-btn danger" data-action="delete-asset" data-id="${a.id}">삭제</button></div></td></tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">월급 수령일 기준 자산과 월급(+상여금)을 입력해 주세요.</div></td></tr>`;
 }
@@ -1717,6 +1750,11 @@ function bindEvents() {
   els.masterTbody.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (!button) return;
+    if (button.dataset.action === "expand-master") {
+      const key = button.dataset.criteria;
+      if (state.expandedMasters.has(key)) state.expandedMasters.delete(key); else state.expandedMasters.add(key);
+      renderMasterTable();
+    }
     if (button.dataset.action === "edit-master") openMasterDialog(masterById(button.dataset.id));
     if (button.dataset.action === "toggle-master") toggleMaster(button.dataset.id);
   });
@@ -1726,14 +1764,14 @@ function bindEvents() {
     state.statsCriteriaTouched = false;
     renderStatistics();
   });
-  els.statsItemCriteria.addEventListener("change", () => {
-    state.statsCriteriaTouched = true;
-    populatePlaceItems();
-    renderStatistics();
-  });
-  els.statsPlaceItem.addEventListener("change", renderStatistics);
+  ["detail-prev", "detail-next"].forEach((id) => $(id).addEventListener("click", () => {
+    const months = state.statsMonths;
+    const current = months.indexOf(state.detailEnd);
+    const next = id === "detail-prev" ? Math.max(0,current-5) : Math.min(months.length-1,current+5);
+    state.detailEnd=months[next];
+    renderDetailTrends(months,state.transactions.filter(tx=>months.includes(txMonth(tx)) && tx.amount<0));
+  }));
   els.budgetKpiMonth.addEventListener("change", renderBudgetKpi);
-  els.spcItemSelect.addEventListener("change", renderSpc);
 
   els.assetForm.addEventListener("submit", saveAsset);
   [els.assetCash, els.assetStock, els.assetInsurance].forEach((input) => input.addEventListener("input", updateAssetPreview));
@@ -1781,3 +1819,4 @@ onAuthStateChanged(auth, (user) => {
     setSync("로그인 필요", "error");
   }
 });
+
