@@ -506,6 +506,16 @@ function chart(name, canvasId, config) {
   state.charts[name]?.destroy?.();
   const canvas = $(canvasId);
   if (!canvas) return;
+  // Trend charts use the same point-anchored labels so every visible series is
+  // readable at the hovered month, including points with a value of zero.
+  if (["line", "bar"].includes(config.type)) {
+    config.plugins ||= [];
+    if (!config.plugins.some((plugin) => plugin.id === pointLabelsPlugin.id)) config.plugins.push(pointLabelsPlugin);
+    config.options ||= {};
+    config.options.interaction = { ...config.options.interaction, mode: "index", intersect: false };
+    config.options.plugins ||= {};
+    config.options.plugins.tooltip = { ...config.options.plugins.tooltip, enabled: false };
+  }
   state.charts[name] = new window.Chart(canvas, config);
 }
 
@@ -517,12 +527,13 @@ const pointLabelsPlugin = {
     if (!active.length) return;
     const index = active[0].index;
     const { ctx, chartArea: area } = chart;
+    const formatValue = chart.options.plugins.pointLabels?.formatValue || formatWon;
     const points = chart.data.datasets.flatMap((dataset, datasetIndex) => {
       if (!chart.isDatasetVisible(datasetIndex)) return [];
       const value = dataset.data[index];
       const point = chart.getDatasetMeta(datasetIndex).data[index];
       if (value == null || !Number.isFinite(Number(value)) || !point || point.skip) return [];
-      return [{ x: point.x, y: point.y, value: Number(value), label: dataset.label, color: dataset.borderColor }];
+      return [{ x: point.x, y: point.y, value: Number(value), label: dataset.label, color: Array.isArray(dataset.borderColor) ? dataset.borderColor[index] : dataset.borderColor }];
     }).sort((a, b) => a.y - b.y);
     if (!points.length) return;
     ctx.save();
@@ -540,7 +551,7 @@ const pointLabelsPlugin = {
       return text + "…";
     };
     const boxes = groups.map(group => {
-      const lines = group.map(p => fit(`${p.label}: ${formatWon(p.value)}`));
+      const lines = group.map(p => fit(`${p.label}: ${formatValue(p.value, p.label)}`));
       const width = Math.min(maxWidth, Math.max(...lines.map(line => ctx.measureText(line).width)) + 24);
       const height = lines.length * 19 + 12;
       const x = Math.max(area.left + 4, Math.min(group[0].x - width / 2, area.right - width - 4));
@@ -1594,7 +1605,7 @@ function renderSpc(master, index) {
       { label: "Rolling Cpk", data: rolling.map((v) => Number.isFinite(v) ? v : null), borderColor: "#3caea3", backgroundColor: "rgba(60,174,163,.12)", fill: true, tension: .25, pointBackgroundColor: rolling.map((v) => v !== null && v < 1.33 ? "#d64545" : "#3caea3"), pointRadius: 4 },
       { label: "관리 기준 1.33", data: months.map(() => 1.33), borderColor: "#f0a500", borderDash: [6, 5], pointRadius: 0 },
     ] },
-    options: baseChartOptions({ scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: "rgba(104,115,134,.12)" }, ticks: { font: { size: 10 } } } }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3) ?? "-"}` } } } }),
+    options: baseChartOptions({ scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: "rgba(104,115,134,.12)" }, ticks: { font: { size: 10 } } } }, plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } }, tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3) ?? "-"}` } }, pointLabels: { formatValue: (value) => value.toFixed(3) } } }),
   });
 
   renderDailySpendRange(master, months, index);
@@ -1737,7 +1748,7 @@ function renderAssetTargets(assets) {
     {...series("목표 All","target",PALETTE[3]),borderDash:[6,4]},
     {label:"Stock",data:rows.map(r=>monthlyAssets.get(r.month)?.stock ?? null),borderColor:PALETTE[1],tension:.2,pointRadius:4,spanGaps:false}
   ]},options:baseChartOptions()});
-  chart("assetGrowth","asset-growth-chart",{type:"line",data:{labels:rows.map(r=>r.month),datasets:[series("Actual 상승률 (%)","actualRate",PALETTE[0]),series("목표 상승률 (%)","targetRate",PALETTE[2]),series("목표 − Actual (%p)","gap",PALETTE[3])]},options:baseChartOptions({scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v.toFixed(1)},title:{display:true,text:"상승률 (%) / 차이 (%p)"}}} ,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+": "+(ctx.parsed.y?.toFixed(2) ?? "-")}}}})});
+  chart("assetGrowth","asset-growth-chart",{type:"line",data:{labels:rows.map(r=>r.month),datasets:[series("Actual 상승률 (%)","actualRate",PALETTE[0]),series("목표 상승률 (%)","targetRate",PALETTE[2]),series("목표 − Actual (%p)","gap",PALETTE[3])]},options:baseChartOptions({scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v.toFixed(1)},title:{display:true,text:"상승률 (%) / 차이 (%p)"}}} ,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+": "+(ctx.parsed.y?.toFixed(2) ?? "-")}},pointLabels:{formatValue:value=>value.toFixed(2)}}}})});
   const pct=v=>v===null ? "-":formatPercent(v,2);
   $("asset-target-tbody").innerHTML=rows.map(r=>`<tr><td>${r.month}</td><td class="number">${r.target===null ? "-":formatWon(r.target)}</td><td class="number">${r.actual===null ? "-":formatWon(r.actual)}</td><td class="number">${pct(r.actualRate)}</td><td class="number">${pct(r.targetRate)}</td><td class="number">${r.gap===null ? "-":r.gap.toFixed(2)+"%p"}</td><td>${r.target===null ? "전월 자산·월급 필요":r.actual===null ? "다음 달 목표":r.actual>=r.target ? "달성":"미달"} · ${r.saved ? "저장된 목표":"현재 예산 재계산"}</td></tr>`).join("") || '<tr><td colspan="7">월말 자산을 입력하면 목표를 계산합니다.</td></tr>';
 }
