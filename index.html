@@ -7,9 +7,9 @@
   <title>Cost Trend | 가계부 & SPC</title>
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20261001-assets-r2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js" defer></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20261001-assets-r2"></script>
 </head>
 <body>
   <div id="toast" class="toast" aria-live="polite"></div>
@@ -321,7 +321,7 @@
       </section>
 
       <section id="view-assets" class="view">
-        <div class="content-grid asset-entry-grid">
+        <div class="content-grid asset-workspace">
           <article class="panel sticky-form">
             <div class="panel-heading">
               <div><h3 id="asset-form-title">월말 자산 입력</h3><p>월급 수령일 기준 자산과 다음 달에 사용할 월급(+상여금)을 기록합니다.</p></div>
@@ -342,7 +342,7 @@
             </form>
           </article>
 
-        </div>
+
 
         <section class="analysis-section"><h3 class="analysis-title">All 자산 목표 · 실제 달성 추이</h3>
           <p class="asset-target-note">다음 달 목표 = 기준월 All + 월급(+상여금) − 다음 달 목표 소비 지출. 기준표의 SPC 제안 예산을 사용하며 ‘저축’ Criteria는 자산 내 이동으로 보아 제외합니다. 실제 All이 목표 이상이면 달성입니다. 투자 수익률은 가정하지 않습니다.</p>
@@ -354,6 +354,7 @@
           </div>
           <details class="asset-target-details"><summary>월별 자산 목표 상세 표 보기</summary><div class="table-wrap spaced"><table><thead><tr><th>대상 월</th><th class="number">목표 All</th><th class="number">Actual All</th><th class="number">Actual 상승률</th><th class="number">목표 상승률</th><th class="number">목표 − Actual (%p)</th><th>판정 / 목표 근거</th></tr></thead><tbody id="asset-target-tbody"></tbody></table></div></details>
         </section>
+        </div>
         <article class="panel spaced">
           <div class="table-wrap">
             <table>

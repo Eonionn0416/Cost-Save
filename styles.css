@@ -390,8 +390,8 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px;
 @media(prefers-reduced-motion:no-preference) { .asset-target-details[open] > .table-wrap { animation:detail-reveal .28s ease-out both; } }
 @media(max-width:800px) { .spc-grid .metric-stack { grid-template-columns:repeat(2,minmax(0,1fr)); } .spc-grid .metric-row { flex-direction:column; border-right:0; } .spc-grid .metric-row strong { text-align:left; } }
 
-.asset-entry-grid { grid-template-columns:1fr; }
-.asset-entry-grid .sticky-form { position:static; }
+
+
 .asset-overview-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,300px); grid-template-areas:"main growth" "secondary growth"; gap:16px; }
 .asset-main-trend { grid-area:main; }
 .asset-secondary-trend { grid-area:secondary; }
@@ -401,3 +401,10 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px;
 .asset-overview-grid .muted { margin:0 0 10px; font-size:12px; }
 .asset-overview-grid .chart-wrap { flex:1; min-height:0; height:auto; }
 @media(max-width:800px) { .asset-overview-grid { grid-template-columns:1fr; grid-template-rows:repeat(3,300px); grid-template-areas:"main" "secondary" "growth"; } }
+
+/* Asset form keeps its original width; analytics is an independent two-column grid. */
+.asset-workspace { grid-template-columns:330px minmax(0,1fr); }
+.asset-workspace > .analysis-section { margin-top:0; min-width:0; }
+.asset-workspace .asset-overview-grid { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,300px); grid-template-areas:"main growth" "secondary growth"; }
+@media(max-width:1100px) { .asset-workspace { grid-template-columns:1fr; } .asset-workspace > .sticky-form { position:static; width:330px; max-width:100%; } }
+@media(max-width:600px) { .asset-workspace .asset-overview-grid { grid-template-columns:1fr; grid-template-rows:repeat(3,300px); grid-template-areas:"main" "secondary" "growth"; } }
