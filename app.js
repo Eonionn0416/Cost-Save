@@ -1748,7 +1748,28 @@ function renderAssetTargets(assets) {
     {...series("목표 All","target",PALETTE[3]),borderDash:[6,4]},
     {label:"Stock",data:rows.map(r=>monthlyAssets.get(r.month)?.stock ?? null),borderColor:PALETTE[1],tension:.2,pointRadius:4,spanGaps:false}
   ]},options:baseChartOptions()});
-  chart("assetGrowth","asset-growth-chart",{type:"line",data:{labels:rows.map(r=>r.month),datasets:[series("Actual 상승률 (%)","actualRate",PALETTE[0]),series("목표 상승률 (%)","targetRate",PALETTE[2]),series("목표 − Actual (%p)","gap",PALETTE[3])]},options:baseChartOptions({scales:{x:{grid:{display:false}},y:{ticks:{callback:v=>v.toFixed(1)},title:{display:true,text:"상승률 (%) / 차이 (%p)"}}} ,plugins:{legend:{position:"bottom"},tooltip:{callbacks:{label:ctx=>ctx.dataset.label+": "+(ctx.parsed.y?.toFixed(2) ?? "-")}},pointLabels:{formatValue:value=>value.toFixed(2)}}}})});
+  chart("assetGrowth", "asset-growth-chart", {
+    type: "line",
+    data: {
+      labels: rows.map((row) => row.month),
+      datasets: [
+        series("Actual 상승률 (%)", "actualRate", PALETTE[0]),
+        series("목표 상승률 (%)", "targetRate", PALETTE[2]),
+        series("목표 − Actual (%p)", "gap", PALETTE[3]),
+      ],
+    },
+    options: baseChartOptions({
+      scales: {
+        x: { grid: { display: false } },
+        y: { ticks: { callback: (value) => value.toFixed(1) }, title: { display: true, text: "상승률 (%) / 차이 (%p)" } },
+      },
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2) ?? "-"}` } },
+        pointLabels: { formatValue: (value) => value.toFixed(2) },
+      },
+    }),
+  });
   const pct=v=>v===null ? "-":formatPercent(v,2);
   $("asset-target-tbody").innerHTML=rows.map(r=>`<tr><td>${r.month}</td><td class="number">${r.target===null ? "-":formatWon(r.target)}</td><td class="number">${r.actual===null ? "-":formatWon(r.actual)}</td><td class="number">${pct(r.actualRate)}</td><td class="number">${pct(r.targetRate)}</td><td class="number">${r.gap===null ? "-":r.gap.toFixed(2)+"%p"}</td><td>${r.target===null ? "전월 자산·월급 필요":r.actual===null ? "다음 달 목표":r.actual>=r.target ? "달성":"미달"} · ${r.saved ? "저장된 목표":"현재 예산 재계산"}</td></tr>`).join("") || '<tr><td colspan="7">월말 자산을 입력하면 목표를 계산합니다.</td></tr>';
 }
