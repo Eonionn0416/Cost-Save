@@ -584,6 +584,7 @@ function purposeChartOptions() {
 function baseChartOptions(extra = {}) {
   return {
     responsive: true,
+    animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? false : { duration: 450, easing: "easeOutQuart" },
     maintainAspectRatio: false,
     interaction: { mode: "index", intersect: false },
     plugins: {
@@ -606,6 +607,12 @@ function renderKpiCards(container, cards) {
       <div class="sub">${escapeHtml(card.sub || "")}</div>
     </div>
   `).join("");
+}
+
+function smoothUpdate(update) {
+  if (document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    document.startViewTransition(update);
+  } else update();
 }
 
 function setView(view) {
@@ -977,7 +984,7 @@ function renderMasterTable() {
     const expanded = state.expandedMasters.has(criteria);
     const total = items.filter(m => m.active !== false).reduce((sum,m) => sum + Number(m.monthlyAmount),0);
     const suggested = items.filter(m => m.active !== false).reduce((sum,m) => sum + (suggestionByMasterId.has(m.id) ? -suggestionByMasterId.get(m.id).target : Number(m.monthlyAmount)),0);
-    return `<tr class="criteria-row"><td><button class="table-btn" data-action="expand-master" data-criteria="${escapeHtml(criteria)}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"} ${escapeHtml(criteria)}</button></td><td>${items.length}개 Item</td><td class="number">${formatWon(total,true)}</td><td class="number">${formatWon(suggested,true)}</td><td colspan="4">클릭하여 세부 Item 보기</td></tr>${expanded ? items.map(masterRow).join("") : ""}`;
+    return `<tr class="criteria-row"><td><button class="table-btn" data-action="expand-master" data-criteria="${escapeHtml(criteria)}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"} ${escapeHtml(criteria)}</button></td><td>${items.length}개 Item</td><td class="number">${formatWon(total,true)}</td><td class="number">${formatWon(suggested,true)}</td><td colspan="4">클릭하여 세부 Item 보기</td></tr>${expanded ? `<tr class="master-detail-row"><td colspan="8"><div class="master-detail-wrap"><table class="master-item-table"><colgroup><col style="width:12%"><col style="width:22%"><col style="width:15%"><col style="width:16%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr><th>Criteria</th><th>Item</th><th class="number">Amount (Monthly)</th><th class="number">다음달 제안 (SPC)</th><th>고정/유동</th><th>기본 Bank</th><th>상태</th><th><span class="muted">관리</span></th></tr></thead><tbody>${items.map(masterRow).join("")}</tbody></table></div></td></tr>` : ""}`;
   }).join("") : '<tr><td colspan="8">기준 항목이 없습니다.</td></tr>';
 
   renderMasterSpcPanel(spcPlan);
@@ -1814,7 +1821,7 @@ function bindEvents() {
     const criteria = row.dataset.criteria;
     if (state.expandedCriteria.has(criteria)) state.expandedCriteria.delete(criteria);
     else state.expandedCriteria.add(criteria);
-    renderDashboard();
+    smoothUpdate(renderDashboard);
   });
   els.transactionCriteria.addEventListener("change", () => { populateTransactionItems(); populateBankOptions(); });
   els.transactionItem.addEventListener("change", () => { populateBankOptions(masterById(els.transactionItem.value)?.bank); updateTransactionHint(); });
@@ -1844,7 +1851,10 @@ function bindEvents() {
     if (button.dataset.action === "expand-master") {
       const key = button.dataset.criteria;
       if (state.expandedMasters.has(key)) state.expandedMasters.delete(key); else state.expandedMasters.add(key);
-      renderMasterTable();
+      smoothUpdate(() => {
+        renderMasterTable();
+        [...els.masterTbody.querySelectorAll("[data-action=expand-master]")].find(node => node.dataset.criteria === key)?.focus({ preventScroll: true });
+      });
     }
     if (button.dataset.action === "edit-master") openMasterDialog(masterById(button.dataset.id));
     if (button.dataset.action === "toggle-master") toggleMaster(button.dataset.id);
