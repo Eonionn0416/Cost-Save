@@ -510,6 +510,77 @@ function chart(name, canvasId, config) {
   state.charts[name] = new window.Chart(canvas, config);
 }
 
+// Hover/touch labels stay beside their series points. Coincident points share a box.
+const pointLabelsPlugin = {
+  id: "pointLabels",
+  afterDraw(chart) {
+    const active = chart.getActiveElements();
+    if (!active.length) return;
+    const index = active[0].index;
+    const { ctx, chartArea: area } = chart;
+    const points = chart.data.datasets.flatMap((dataset, datasetIndex) => {
+      if (!chart.isDatasetVisible(datasetIndex)) return [];
+      const value = dataset.data[index];
+      const point = chart.getDatasetMeta(datasetIndex).data[index];
+      if (value == null || !Number.isFinite(Number(value)) || !point || point.skip) return [];
+      return [{ x: point.x, y: point.y, value: Number(value), label: dataset.label, color: dataset.borderColor }];
+    }).sort((a, b) => a.y - b.y);
+    if (!points.length) return;
+    ctx.save();
+    ctx.font = "12px sans-serif";
+    const groups = [];
+    points.forEach(point => {
+      const previous = groups.at(-1);
+      if (previous && Math.abs(previous[0].y - point.y) < 16) previous.push(point);
+      else groups.push([point]);
+    });
+    const maxWidth = Math.max(70, area.right - area.left - 8);
+    const fit = text => {
+      if (ctx.measureText(text).width <= maxWidth - 24) return text;
+      while (text.length && ctx.measureText(text + "…").width > maxWidth - 24) text = text.slice(0, -1);
+      return text + "…";
+    };
+    const boxes = groups.map(group => {
+      const lines = group.map(p => fit(`${p.label}: ${formatWon(p.value)}`));
+      const width = Math.min(maxWidth, Math.max(...lines.map(line => ctx.measureText(line).width)) + 24);
+      const height = lines.length * 19 + 12;
+      const x = Math.max(area.left + 4, Math.min(group[0].x - width / 2, area.right - width - 4));
+      return { group, lines, width, height, x, y: Math.max(area.top + 3, group[0].y - height - 10) };
+    });
+    // Separate adjacent labels, then move the stack upward if it reaches the axis.
+    boxes.forEach((box, i) => {
+      if (i) box.y = Math.max(box.y, boxes[i - 1].y + boxes[i - 1].height + 5);
+    });
+    const overflow = Math.max(0, boxes.at(-1).y + boxes.at(-1).height - area.bottom);
+    boxes.forEach(box => { box.y -= overflow; });
+    boxes.forEach(box => {
+      ctx.strokeStyle = "rgba(60,70,85,.45)";
+      box.group.forEach(p => {
+        ctx.beginPath(); ctx.moveTo(p.x, p.y);
+        ctx.lineTo(Math.max(box.x, Math.min(p.x, box.x + box.width)), box.y + box.height);
+        ctx.stroke();
+      });
+      ctx.fillStyle = "rgba(255,255,255,.97)";
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+      ctx.strokeStyle = "#c8d6e4";
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
+      box.group.forEach((p, i) => {
+        const y = box.y + 6 + i * 19;
+        ctx.fillStyle = p.color; ctx.fillRect(box.x + 6, y + 4, 7, 7);
+        ctx.fillStyle = "#17202a"; ctx.textBaseline = "top";
+        ctx.fillText(box.lines[i], box.x + 18, y);
+      });
+    });
+    ctx.restore();
+  },
+};
+
+function purposeChartOptions() {
+  const options = baseChartOptions();
+  options.plugins.tooltip.enabled = false;
+  return options;
+}
+
 function baseChartOptions(extra = {}) {
   return {
     responsive: true,
@@ -1331,6 +1402,25 @@ function destroyChartGroup(prefix) {
   Object.keys(state.charts).filter(key => key.startsWith(prefix)).forEach(key => { state.charts[key].destroy(); delete state.charts[key]; });
 }
 
+function alignedTrendTransactions(transactions) {
+  return transactions.map(tx => {
+    // Resolve renamed items by their stable ID, without rewriting ledger history.
+    const master = masterById(tx.masterId);
+    return master ? { ...tx, criteriaSnapshot: master.criteria, itemSnapshot: master.item } : tx;
+  });
+}
+
+function topPurposeDatasets(months, transactions) {
+  const rows = transactions.filter(tx => Number(tx.amount) < 0 && months.includes(txMonth(tx)));
+  const purpose = tx => String(tx.place || "").trim() || "미입력";
+  const counts = new Map();
+  rows.forEach(tx => counts.set(purpose(tx), (counts.get(purpose(tx)) || 0) + 1));
+  const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).slice(0, 5);
+  const datasets = new Map(groupMonthly(months, rows, purpose).map(dataset => [dataset.label, dataset]));
+  return top.map(([name, count], index) => ({ ...datasets.get(name), transactionCount: count,
+    borderColor: PALETTE[index % PALETTE.length], backgroundColor: `${PALETTE[index % PALETTE.length]}33` }));
+}
+
 function renderDetailTrends(months, txs) {
   destroyChartGroup("detail-");
   const last = months.at(-1);
@@ -1340,17 +1430,18 @@ function renderDetailTrends(months, txs) {
   $("detail-period").textContent = visible.length ? visible[0] + " ~ " + visible.at(-1) : "조회 기간을 확인해 주세요.";
   $("detail-prev").disabled = endIndex < 5;
   $("detail-next").disabled = endIndex >= months.length-1;
-  const criteria = [...new Set([...expenseMasters().map(m=>m.criteria), ...txs.map(tx=>tx.criteriaSnapshot)])].filter(c=>c && c !== "월급").sort((a,b)=>a.localeCompare(b,"ko"));
-  $("detail-trend-rows").innerHTML = criteria.map((c,i) => `<div class="criteria-trend-block"><h4>${escapeHtml(c)}</h4><div class="trend-pair"><article class="panel"><div class="panel-heading"><h3>Monthly × Item 사용 금액 Trend</h3></div><div class="chart-wrap"><canvas id="detail-item-${i}"></canvas></div></article><article class="panel"><div class="panel-heading wrap"><h3>Monthly × 목적 Trend</h3><label>세부 Item <select id="detail-select-${i}"></select></label></div><div class="chart-wrap"><canvas id="detail-place-${i}"></canvas></div></article></div></div>`).join("") || '<div class="empty-state">지출 Item을 추가해 주세요.</div>';
+  const alignedRows = alignedTrendTransactions(txs).filter(tx => visible.includes(txMonth(tx)) && Number(tx.amount) < 0);
+  const criteria = [...new Set(alignedRows.map(tx=>tx.criteriaSnapshot))].filter(c=>c && c !== "월급").sort((a,b)=>a.localeCompare(b,"ko"));
+  $("detail-trend-rows").innerHTML = criteria.map((c,i) => `<div class="criteria-trend-block"><h4>${escapeHtml(c)}</h4><div class="trend-pair"><article class="panel"><div class="panel-heading"><h3>Monthly × Item 사용 금액 Trend</h3></div><div class="chart-wrap"><canvas id="detail-item-${i}"></canvas></div></article><article class="panel"><div class="panel-heading wrap"><div><h3>Monthly × 목적 Trend</h3><p>표시 중인 5개월 · 지출 횟수 TOP 5 (동률은 이름순)</p></div><label>세부 Item <select id="detail-select-${i}"></select></label></div><div class="chart-wrap"><canvas id="detail-place-${i}"></canvas></div></article></div></div>`).join("") || '<div class="empty-state">표시 기간에 작성된 지출 기록이 없습니다.</div>';
   criteria.forEach((c,i)=>{
-    const rows = txs.filter(tx=>tx.criteriaSnapshot===c && tx.itemSnapshot !== "월급");
-    const items = [...new Set([...expenseMasters().filter(m=>m.criteria===c).map(m=>m.item),...rows.map(tx=>tx.itemSnapshot)])].filter(item=>item !== "월급");
+    const rows = alignedRows.filter(tx=>tx.criteriaSnapshot===c && tx.itemSnapshot !== "월급");
+    const items = [...new Set(rows.map(tx=>tx.itemSnapshot))].filter(Boolean).sort((a,b)=>a.localeCompare(b,"ko"));
     const select = $("detail-select-"+i);
     select.innerHTML=items.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join("");
     if(items.includes(state.placeSelections.get(c))) select.value=state.placeSelections.get(c);
     const drawPlace=()=>{
       state.placeSelections.set(c,select.value);
-      chart("detail-place-"+i,"detail-place-"+i,{type:"line",data:{labels:visible,datasets:groupMonthly(visible,rows.filter(tx=>tx.itemSnapshot===select.value),tx=>tx.place || "미입력")},options:baseChartOptions()});
+      chart("detail-place-"+i,"detail-place-"+i,{type:"line",data:{labels:visible,datasets:topPurposeDatasets(visible,rows.filter(tx=>tx.itemSnapshot===select.value))},options:purposeChartOptions(),plugins:[pointLabelsPlugin]});
     };
     select.addEventListener("change",drawPlace);
     chart("detail-item-"+i,"detail-item-"+i,{type:"line",data:{labels:visible,datasets:groupMonthly(visible,rows,tx=>tx.itemSnapshot)},options:baseChartOptions()});
@@ -1819,4 +1910,5 @@ onAuthStateChanged(auth, (user) => {
     setSync("로그인 필요", "error");
   }
 });
+
 
