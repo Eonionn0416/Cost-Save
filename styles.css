@@ -389,3 +389,15 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px;
 .asset-target-details > summary { cursor:pointer; padding:12px 14px; border:1px solid #c8d6e4; border-radius:8px; background:#f7faff; font-weight:600; }
 @media(prefers-reduced-motion:no-preference) { .asset-target-details[open] > .table-wrap { animation:detail-reveal .28s ease-out both; } }
 @media(max-width:800px) { .spc-grid .metric-stack { grid-template-columns:repeat(2,minmax(0,1fr)); } .spc-grid .metric-row { flex-direction:column; border-right:0; } .spc-grid .metric-row strong { text-align:left; } }
+
+.asset-entry-grid { grid-template-columns:1fr; }
+.asset-entry-grid .sticky-form { position:static; }
+.asset-overview-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,300px); grid-template-areas:"main growth" "secondary growth"; gap:16px; }
+.asset-main-trend { grid-area:main; }
+.asset-secondary-trend { grid-area:secondary; }
+.asset-growth-trend { grid-area:growth; }
+.asset-overview-grid .panel { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.asset-overview-grid h3 { margin:0 0 12px; }
+.asset-overview-grid .muted { margin:0 0 10px; font-size:12px; }
+.asset-overview-grid .chart-wrap { flex:1; min-height:0; height:auto; }
+@media(max-width:800px) { .asset-overview-grid { grid-template-columns:1fr; grid-template-rows:repeat(3,300px); grid-template-areas:"main" "secondary" "growth"; } }
