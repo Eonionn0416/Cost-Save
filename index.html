@@ -317,21 +317,7 @@
           <div id="detail-trend-rows"></div>
         </section>
         <section class="analysis-section"><h3 class="analysis-title">03 · 유동 Item별 SPC 분석</h3><div id="spc-rows"></div></section>
-        <section class="analysis-section"><h3 class="analysis-title">04 · 월별 예산 판정</h3><article class="panel spaced">
-          <div class="panel-heading wrap">
-            <div>
-              <h3>월별 Budget KPI / USL</h3>
-              <p>실제 사용액이 기준표의 월 금액을 넘으면 빨간색으로 표시합니다.</p>
-            </div>
-            <input id="budget-kpi-month" type="month" />
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Criteria</th><th>Item</th><th>Type</th><th class="number">USL</th><th class="number">Actual</th><th class="number">차이</th><th>사용률</th><th>판정</th></tr></thead>
-              <tbody id="budget-kpi-tbody"></tbody>
-            </table>
-          </div>
-        </article></section>
+
       </section>
 
       <section id="view-assets" class="view">
@@ -367,7 +353,7 @@
           <div id="asset-target-kpis" class="kpi-grid"></div>
           <div class="trend-pair"><article class="panel"><h3>All Actual / 목표</h3><div class="chart-wrap"><canvas id="asset-target-chart"></canvas></div></article>
           <article class="panel"><h3>Actual 상승률 · 목표 상승률 · 목표 − Actual</h3><p class="muted">전월 실제 All 대비 상승률(%) · 상승률 차이(%p)</p><div class="chart-wrap"><canvas id="asset-growth-chart"></canvas></div></article></div>
-          <div class="table-wrap spaced"><table><thead><tr><th>대상 월</th><th class="number">목표 All</th><th class="number">Actual All</th><th class="number">Actual 상승률</th><th class="number">목표 상승률</th><th class="number">목표 − Actual (%p)</th><th>판정 / 목표 근거</th></tr></thead><tbody id="asset-target-tbody"></tbody></table></div>
+          <details class="asset-target-details"><summary>월별 자산 목표 상세 표 보기</summary><div class="table-wrap spaced"><table><thead><tr><th>대상 월</th><th class="number">목표 All</th><th class="number">Actual All</th><th class="number">Actual 상승률</th><th class="number">목표 상승률</th><th class="number">목표 − Actual (%p)</th><th>판정 / 목표 근거</th></tr></thead><tbody id="asset-target-tbody"></tbody></table></div></details>
         </section>
         <article class="panel spaced">
           <div class="table-wrap">

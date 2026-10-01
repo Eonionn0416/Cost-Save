@@ -120,7 +120,6 @@ const els = {
   statsStartMonth: $("stats-start-month"), statsEndMonth: $("stats-end-month"), statsRefreshBtn: $("stats-refresh-btn"),
   statsKpis: $("stats-kpis"), statsItemCriteria: $("stats-item-criteria"),
   statsPlaceItem: $("stats-place-item"), quarterTrendSummary: $("quarter-trend-summary"),
-  budgetKpiMonth: $("budget-kpi-month"), budgetKpiTbody: $("budget-kpi-tbody"),
   spcItemSelect: $("spc-item-select"), spcSummary: $("spc-summary"), dailyRangeSummary: $("daily-range-summary"),
   assetForm: $("asset-form"), assetId: $("asset-id"), assetDate: $("asset-date"),
   assetSalaryBonus: $("asset-salary-bonus"), assetCash: $("asset-cash"), assetStock: $("asset-stock"), assetInsurance: $("asset-insurance"),
@@ -984,7 +983,7 @@ function renderMasterTable() {
     const expanded = state.expandedMasters.has(criteria);
     const total = items.filter(m => m.active !== false).reduce((sum,m) => sum + Number(m.monthlyAmount),0);
     const suggested = items.filter(m => m.active !== false).reduce((sum,m) => sum + (suggestionByMasterId.has(m.id) ? -suggestionByMasterId.get(m.id).target : Number(m.monthlyAmount)),0);
-    return `<tr class="criteria-row"><td><button class="table-btn" data-action="expand-master" data-criteria="${escapeHtml(criteria)}" aria-expanded="${expanded}">${expanded ? "▾" : "▸"} ${escapeHtml(criteria)}</button></td><td>${items.length}개 Item</td><td class="number">${formatWon(total,true)}</td><td class="number">${formatWon(suggested,true)}</td><td colspan="4">클릭하여 세부 Item 보기</td></tr>${expanded ? `<tr class="master-detail-row"><td colspan="8"><div class="master-detail-wrap"><table class="master-item-table"><colgroup><col style="width:12%"><col style="width:22%"><col style="width:15%"><col style="width:16%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr><th>Criteria</th><th>Item</th><th class="number">Amount (Monthly)</th><th class="number">다음달 제안 (SPC)</th><th>고정/유동</th><th>기본 Bank</th><th>상태</th><th><span class="muted">관리</span></th></tr></thead><tbody>${items.map(masterRow).join("")}</tbody></table></div></td></tr>` : ""}`;
+    return `<tr class="criteria-row master-toggle-row" data-action="expand-master" data-criteria="${escapeHtml(criteria)}" tabindex="0" aria-expanded="${expanded}" aria-label="${escapeHtml(criteria)} 세부 항목 펼치기 또는 접기"><td><strong><span aria-hidden="true">${expanded ? "▾" : "▸"}</span> ${escapeHtml(criteria)}</strong></td><td>${items.length}개 Item</td><td class="number">${formatWon(total,true)}</td><td class="number">${formatWon(suggested,true)}</td><td colspan="4">클릭하여 세부 Item 보기</td></tr>${expanded ? `<tr class="master-detail-row"><td colspan="8"><div class="master-detail-wrap"><table class="master-item-table"><colgroup><col style="width:12%"><col style="width:22%"><col style="width:15%"><col style="width:16%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr><th>Criteria</th><th>Item</th><th class="number">Amount (Monthly)</th><th class="number">다음달 제안 (SPC)</th><th>고정/유동</th><th>기본 Bank</th><th>상태</th><th><span class="muted">관리</span></th></tr></thead><tbody>${items.map(masterRow).join("")}</tbody></table></div></td></tr>` : ""}`;
   }).join("") : '<tr><td colspan="8">기준 항목이 없습니다.</td></tr>';
 
   renderMasterSpcPanel(spcPlan);
@@ -1373,7 +1372,6 @@ function renderStatistics() {
   const defaultRange = defaultTrendRange();
   if (!els.statsEndMonth.value) els.statsEndMonth.value = defaultRange.end;
   if (!els.statsStartMonth.value) els.statsStartMonth.value = defaultRange.start;
-  if (!els.budgetKpiMonth.value) els.budgetKpiMonth.value = currentMonth();
   const months = monthRange(els.statsStartMonth.value, els.statsEndMonth.value);
   const analysisMonths = months.filter((month) => month <= currentMonth());
   state.statsMonths = months;
@@ -1401,7 +1399,6 @@ function renderStatistics() {
   renderQuarterTrend(months, txs);
 
   renderDetailTrends(months, txs);
-  renderBudgetKpi();
   renderSpcRows();
 }
 
@@ -1548,20 +1545,6 @@ function renderDailySpendRange(master, months, index) {
     },
     options: baseChartOptions(),
   });
-}
-
-function renderBudgetKpi() {
-  const month = els.budgetKpiMonth.value || currentMonth();
-  const rows = budgetRows(month);
-  els.budgetKpiTbody.innerHTML = rows.length ? rows.map((row) => `
-    <tr class="${row.over ? "outlier" : ""}">
-      <td>${escapeHtml(row.master.criteria)}</td><td>${escapeHtml(row.master.item)}</td>
-      <td><span class="badge ${row.master.flowType === "유동" ? "variable" : "fixed"}">${escapeHtml(row.master.flowType)}</span></td>
-      <td class="number">${formatWon(row.usl)}</td><td class="number">${formatWon(row.used)}</td>
-      <td class="number ${row.diff < 0 ? "amount-expense" : ""}">${formatWon(row.diff, true)}</td>
-      <td><div class="progress ${row.over ? "over" : ""}" title="${formatPercent(row.utilization)}"><span style="width:${Math.min(row.utilization, 100)}%"></span></div></td>
-      <td><span class="badge ${row.over ? "danger" : row.utilization >= 80 ? "warn" : "ok"}">${row.over ? "USL 초과" : row.utilization >= 80 ? "주의" : "정상"}</span></td>
-    </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">활성 지출 기준 항목이 없습니다.</div></td></tr>`;
 }
 
 function renderSpc(master, index) {
@@ -1859,6 +1842,12 @@ function bindEvents() {
     if (button.dataset.action === "edit-master") openMasterDialog(masterById(button.dataset.id));
     if (button.dataset.action === "toggle-master") toggleMaster(button.dataset.id);
   });
+  els.masterTbody.addEventListener("keydown", event => {
+    if (event.target.matches(".master-toggle-row") && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      event.target.click();
+    }
+  });
   els.applySpcBtn.addEventListener("click", applySpcSuggestions);
 
   els.statsRefreshBtn.addEventListener("click", () => {
@@ -1872,7 +1861,6 @@ function bindEvents() {
     state.detailEnd=months[next];
     renderDetailTrends(months,state.transactions.filter(tx=>months.includes(txMonth(tx)) && tx.amount<0));
   }));
-  els.budgetKpiMonth.addEventListener("change", renderBudgetKpi);
 
   els.assetForm.addEventListener("submit", saveAsset);
   [els.assetCash, els.assetStock, els.assetInsurance].forEach((input) => input.addEventListener("input", updateAssetPreview));
@@ -1891,7 +1879,6 @@ function initializeDefaults() {
   els.ledgerMonth.value = currentMonth();
   els.statsEndMonth.value = trendRange.end;
   els.statsStartMonth.value = trendRange.start;
-  els.budgetKpiMonth.value = currentMonth();
   resetTransactionForm();
   resetAssetForm();
 }

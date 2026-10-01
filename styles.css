@@ -349,9 +349,9 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px;
 .criteria-trend-block h4, .spc-item-block h4 { margin: 0 0 14px; font-size: 17px; }
 .spc-grid {
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(155px,.4fr) minmax(0,1.18fr);
+  grid-template-columns:repeat(2,minmax(0,1fr));
   grid-template-rows:repeat(2,minmax(0,1fr));
-  grid-template-areas:"spc summary daily" "spc summary cpk";
+  grid-template-areas:"spc daily" "summary cpk";
   gap:12px;
   height:560px;
   margin-bottom:10px;
@@ -378,3 +378,14 @@ td small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px;
   .spc-grid .metric-row { flex-direction:row; justify-content:space-between; }
   .spc-grid .metric-row strong { text-align:right; }
 }
+
+.spc-grid .metric-stack { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px 12px; align-content:start; }
+.spc-grid .metric-row { border-bottom:0; border-right:1px solid var(--line); padding:6px 8px 6px 0; }
+.spc-grid .metric-row:nth-child(3n) { border-right:0; }
+.master-toggle-row { cursor:pointer; }
+.master-toggle-row:hover, .master-toggle-row[aria-expanded="true"] { background:#edf3f8; }
+.master-toggle-row:focus-visible { outline:2px solid #20639b; outline-offset:-2px; }
+.asset-target-details { margin-top:18px; }
+.asset-target-details > summary { cursor:pointer; padding:12px 14px; border:1px solid #c8d6e4; border-radius:8px; background:#f7faff; font-weight:600; }
+@media(prefers-reduced-motion:no-preference) { .asset-target-details[open] > .table-wrap { animation:detail-reveal .28s ease-out both; } }
+@media(max-width:800px) { .spc-grid .metric-stack { grid-template-columns:repeat(2,minmax(0,1fr)); } .spc-grid .metric-row { flex-direction:column; border-right:0; } .spc-grid .metric-row strong { text-align:left; } }
